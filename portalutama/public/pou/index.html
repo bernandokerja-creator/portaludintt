@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GELUD ANYING</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="game-board">
+    <div id="gacha-popup"></div>
+
+    <!-- RUANG ISTANA KERAJAAN MEWAH (76% KIRI) -->
+    <div class="royal-room">
+        <div class="castle-wall-texture"></div>
+        <div class="royal-carpet"></div>
+
+        <div class="royal-sofas-left" id="sofas-left"></div>
+        <div class="royal-sofas-right" id="sofas-right"></div>
+
+        <!-- SINGGASANA KERAJAAN MEGAH DI TENGAH -->
+        <div class="grand-throne-wrapper">
+            <svg viewBox="0 0 340 310" width="340" height="310" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#fff099"/>
+                        <stop offset="45%" stop-color="#eab308"/>
+                        <stop offset="100%" stop-color="#854d0e"/>
+                    </linearGradient>
+                    <linearGradient id="velvetRed" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#991b1b"/>
+                        <stop offset="50%" stop-color="#7f1d1d"/>
+                        <stop offset="100%" stop-color="#450a0a"/>
+                    </linearGradient>
+                </defs>
+
+                <rect x="25" y="268" width="290" height="24" rx="5" fill="#7f1d1d" stroke="url(#goldGrad)" stroke-width="3.5"/>
+                <rect x="45" y="246" width="250" height="24" rx="5" fill="#991b1b" stroke="url(#goldGrad)" stroke-width="3.5"/>
+                <rect x="65" y="224" width="210" height="24" rx="5" fill="#b91c1c" stroke="url(#goldGrad)" stroke-width="3.5"/>
+
+                <rect x="72" y="65" width="22" height="165" rx="4" fill="url(#goldGrad)" stroke="#fef08a" stroke-width="2"/>
+                <circle cx="83" cy="56" r="14" fill="url(#goldGrad)" stroke="#fff" stroke-width="2"/>
+                <rect x="246" y="65" width="22" height="165" rx="4" fill="url(#goldGrad)" stroke="#fef08a" stroke-width="2"/>
+                <circle cx="257" cy="56" r="14" fill="url(#goldGrad)" stroke="#fff" stroke-width="2"/>
+
+                <path d="M 88,185 L 88,75 C 88,20 252,20 252,75 L 252,185 Z" fill="url(#goldGrad)" stroke="#ffffff" stroke-width="4"/>
+                <path d="M 102,180 L 102,82 C 102,38 238,38 238,82 L 238,180 Z" fill="url(#velvetRed)" stroke="#facc15" stroke-width="3"/>
+
+                <circle cx="145" cy="85" r="3.5" fill="#fef08a"/><circle cx="170" cy="85" r="3.5" fill="#fef08a"/><circle cx="195" cy="85" r="3.5" fill="#fef08a"/>
+                <circle cx="132" cy="112" r="3.5" fill="#fef08a"/><circle cx="170" cy="112" r="3.5" fill="#fef08a"/><circle cx="208" cy="112" r="3.5" fill="#fef08a"/>
+                <circle cx="145" cy="140" r="3.5" fill="#fef08a"/><circle cx="170" cy="140" r="3.5" fill="#fef08a"/><circle cx="195" cy="140" r="3.5" fill="#fef08a"/>
+
+                <polygon points="135,34 135,10 152,22 170,4 188,22 205,10 205,34" fill="url(#goldGrad)" stroke="#ffffff" stroke-width="2"/>
+                <circle cx="170" cy="21" r="4.5" fill="#ef4444"/><circle cx="150" cy="24" r="3" fill="#38bdf8"/><circle cx="190" cy="24" r="3" fill="#38bdf8"/>
+
+                <rect x="64" y="156" width="38" height="68" rx="8" fill="url(#goldGrad)" stroke="#fff" stroke-width="2.5"/>
+                <rect x="238" y="156" width="38" height="68" rx="8" fill="url(#goldGrad)" stroke="#fff" stroke-width="2.5"/>
+
+                <rect x="96" y="176" width="148" height="48" rx="10" fill="url(#velvetRed)" stroke="url(#goldGrad)" stroke-width="4.5"/>
+                <line x1="104" y1="192" x2="236" y2="192" stroke="#facc15" stroke-width="2" stroke-dasharray="6 4"/>
+
+                <rect x="36" y="140" width="10" height="84" rx="3" fill="url(#goldGrad)"/>
+                <path d="M 41,110 C 52,124 48,138 41,140 C 34,138 30,124 41,110 Z" fill="#f97316"/>
+                <path d="M 41,120 C 46,128 45,136 41,138 C 37,136 36,128 41,120 Z" fill="#fef08a"/>
+
+                <rect x="294" y="140" width="10" height="84" rx="3" fill="url(#goldGrad)"/>
+                <path d="M 299,110 C 310,124 306,138 299,140 C 292,138 288,124 299,110 Z" fill="#f97316"/>
+                <path d="M 299,120 C 304,128 303,136 299,138 C 295,136 294,128 299,120 Z" fill="#fef08a"/>
+            </svg>
+        </div>
+    </div>
+
+    <!-- ARENA DUNGEON RAMPING 100 LANTAI (24% KANAN) -->
+    <div class="dungeon-scroll-room" id="dungeon-scroll-area">
+        <div class="dungeon-floors-container" id="dungeon-floors-container"></div>
+    </div>
+
+    <!-- TOMBOL ATAS: MENU HOST, SHOW COSTUME, DAN BUKA ADMIN PANEL DI TAB BARU -->
+    <button id="host-btn" onclick="togglePlayerModal()">📋 MENU HOST & PEMAIN</button>
+    <button id="costume-btn" onclick="toggleCostumeModal()">👗 SHOW COSTUME</button>
+    <button onclick="window.open('/pou/admin.html', '_blank')" style="position: absolute; top: 15px; left: 400px; background: #0f172a; color: #ffd700; border: 2px solid #ffd700; padding: 8px 14px; border-radius: 8px; font-weight: bold; cursor: pointer; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">🛡️ ADMIN PANEL (TAB BARU)</button>
+
+    <!-- MODAL DAFTAR PEMAIN -->
+    <div id="player-modal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size: 11px; font-weight: bold; color: #ffd700;">DAFTAR PEMAIN TIKTOK:</span>
+        </div>
+        <input type="text" id="search-input" onkeyup="filterPlayers()" placeholder="Ketik nama TikTok...">
+        <div id="player-list"></div>
+    </div>
+
+    <!-- MODAL KATALOG 25 KOSTUM TIAP LEVEL -->
+    <div id="costume-modal">
+        <div class="costume-modal-header">
+            <div class="costume-modal-title">👗 KATALOG KOSTUM POU TIAP LEVEL (Gift Parfume 20c)</div>
+            <button class="btn-close-modal" onclick="toggleCostumeModal()">✖ TUTUP</button>
+        </div>
+        <div id="costume-catalog-content"></div>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="pou-renderer.js"></script>
+<script>
+    const socket = io('/pou');
+    const board = document.getElementById('game-board');
+    const players = {};
+    const allSavedPlayers = {};
+    let selectedPlayerId = null;
+    let costumeAutoCloseTimer = null;
+
+    const bossIcons = ["👹", "👿", "🐉", "👾", "💀"];
+
+    const luxurySofaSVG = `
+        <svg class="luxury-sofa" viewBox="0 0 125 105" xmlns="http://www.w3.org/2000/svg">
+            <rect x="18" y="88" width="10" height="12" rx="2" fill="#eab308"/>
+            <rect x="97" y="88" width="10" height="12" rx="2" fill="#eab308"/>
+            <rect x="14" y="16" width="97" height="54" rx="14" fill="#18181b" stroke="#eab308" stroke-width="3"/>
+            <circle cx="42" cy="36" r="2.5" fill="#eab308"/><circle cx="62.5" cy="36" r="2.5" fill="#eab308"/><circle cx="83" cy="36" r="2.5" fill="#eab308"/>
+            <circle cx="52" cy="50" r="2.5" fill="#eab308"/><circle cx="73" cy="50" r="2.5" fill="#eab308"/>
+            <rect x="16" y="60" width="93" height="28" rx="8" fill="#27272a" stroke="#eab308" stroke-width="2.5"/>
+            <line x1="62.5" y1="60" x2="62.5" y2="88" stroke="#09090b" stroke-width="2.5"/>
+            <rect x="6" y="42" width="18" height="46" rx="8" fill="#18181b" stroke="#eab308" stroke-width="2.5"/>
+            <rect x="101" y="42" width="18" height="46" rx="8" fill="#18181b" stroke="#eab308" stroke-width="2.5"/>
+        </svg>
+    `;
+    document.getElementById('sofas-left').innerHTML = luxurySofaSVG.repeat(3);
+    document.getElementById('sofas-right').innerHTML = luxurySofaSVG.repeat(3);
+
+    const costumeCatalogData = [
+        {
+            tier: "⭐ LEVEL 1 – 20 (Pemula & Kasual)",
+            items: [
+                { id: "tuxedo-hitam", name: "Tuxedo & Fedora" },
+                { id: "baju-merah-pink", name: "Gaun Merah Pink" },
+                { id: "topi-koki", name: "Koki Kerajaan" },
+                { id: "baju-pelaut", name: "Seragam Pelaut" },
+                { id: "kostum-lebah", name: "Lebah Madu" }
+            ]
+        },
+        {
+            tier: "⚔️ LEVEL 21 – 40 (Petualang & Ksatria)",
+            items: [
+                { id: "kostum-panda", name: "Panda Klasik" },
+                { id: "helm-zirah", name: "Ksatria Baja" },
+                { id: "jubah-sihir", name: "Penyihir Bintang" },
+                { id: "kostum-ninja", name: "Ninja Bayangan" },
+                { id: "baju-bajak-laut", name: "Kapten Bajak Laut" }
+            ]
+        },
+        {
+            tier: "👑 LEVEL 41 – 60 (Bangsawan & Sultan)",
+            items: [
+                { id: "mahkota-emas", name: "Mahkota Raja" },
+                { id: "tuxedo-sultan", name: "Tuxedo Sultan" },
+                { id: "jubah-merah-raja", name: "Jubah Kaisar" },
+                { id: "baju-pharaoh", name: "Pharaoh Mesir" },
+                { id: "jas-berlian", name: "Jas Berlian" }
+            ]
+        },
+        {
+            tier: "🐉 LEVEL 61 – 80 (Mitologi & Legenda)",
+            items: [
+                { id: "sayap-malaikat", name: "Sayap Malaikat" },
+                { id: "kostum-anubis", name: "Dewa Anubis" },
+                { id: "kostum-naga-api", name: "Naga Api" },
+                { id: "zirah-samurai", name: "Samurai Shogun" },
+                { id: "jubah-vampir", name: "Vampir Drakula" }
+            ]
+        },
+        {
+            tier: "⚡ LEVEL 81 – 100 (Dewa & Kosmik)",
+            items: [
+                { id: "halo-surgawi", name: "Halo Surgawi" },
+                { id: "aura-listrik-thor", name: "Dewa Petir Thor" },
+                { id: "jubah-kosmik", name: "Jubah Galaxy" },
+                { id: "cyber-mecha", name: "Cyber Mecha" },
+                { id: "dewa-matahari", name: "Dewa Matahari" }
+            ]
+        }
+    ];
+
+    function buildCostumeCatalog() {
+        const container = document.getElementById('costume-catalog-content');
+        container.innerHTML = costumeCatalogData.map(group => `
+            <div class="costume-tier-section">
+                <div class="costume-tier-title">${group.tier}</div>
+                <div class="costume-grid">
+                    ${group.items.map(item => `
+                        <div class="costume-card">
+                            <div class="costume-preview">${renderPouSVG(item.id, "none", "normal")}</div>
+                            <div class="costume-card-name">${item.name}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+    }
+    buildCostumeCatalog();
+
+    function toggleCostumeModal(forceOpen = false) {
+        const modal = document.getElementById('costume-modal');
+        if (forceOpen) {
+            modal.style.display = 'block';
+            clearTimeout(costumeAutoCloseTimer);
+            costumeAutoCloseTimer = setTimeout(() => { modal.style.display = 'none'; }, 8000);
+        } else {
+            modal.style.display = modal.style.display === 'block' ? 'none' : 'block';
+        }
+    }
+
+    const container = document.getElementById('dungeon-floors-container');
+    for (let i = 1; i <= 100; i++) {
+        const floorCard = document.createElement('div');
+        floorCard.className = `dungeon-floor-card ${i === 1 ? 'active-floor' : ''}`;
+        floorCard.id = `floor-card-${i}`;
+        const bIcon = bossIcons[(i - 1) % bossIcons.length];
+        floorCard.innerHTML = `
+            <div class="floor-label-big">LANTAI ${i}</div>
+            <div class="monster-box">
+                <div class="monster-alive">${bIcon}</div>
+                <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-boss-${i}"></div></div>
+            </div>
+        `;
+        container.appendChild(floorCard);
+    }
+
+    socket.on('init_game', (data) => {
+        Object.keys(data.players).forEach(id => {
+            allSavedPlayers[id] = data.players[id];
+            if (!data.players[id].isHidden) {
+                spawnPou(data.players[id]);
+            }
+        });
+        renderPlayerList();
+    });
+
+    socket.on('show_costume_catalog', () => { toggleCostumeModal(true); });
+
+    socket.on('player_updated', (data) => {
+        const p = data.player;
+        allSavedPlayers[p.id] = p;
+        if (!players[p.id]) spawnPou(p); else updatePou(p, data.action);
+        if (data.action === 'gacha') showGachaNotif(`${p.name} Mendapatkan ${data.rewardText}! 🎉`);
+        renderPlayerList();
+    });
+
+    socket.on('pou_hidden', (data) => {
+        if (allSavedPlayers[data.id]) {
+            allSavedPlayers[data.id].isHidden = true;
+        }
+        if (players[data.id]) {
+            clearTimeout(players[data.id].actionTimer);
+            clearInterval(players[data.id].soapInterval);
+            clearTimeout(players[data.id].throneTimer);
+            players[data.id].element.remove();
+            delete players[data.id];
+            if (selectedPlayerId === data.id) {
+                const remaining = Object.keys(players);
+                selectedPlayerId = remaining.length > 0 ? remaining[0] : null;
+            }
+            renderPlayerList();
+        }
+    });
+
+    socket.on('player_deleted', (data) => {
+        delete allSavedPlayers[data.id];
+        if (players[data.id]) {
+            clearTimeout(players[data.id].actionTimer);
+            clearInterval(players[data.id].soapInterval);
+            clearTimeout(players[data.id].throneTimer);
+            players[data.id].element.remove();
+            delete players[data.id];
+            if (selectedPlayerId === data.id) {
+                const remaining = Object.keys(players);
+                selectedPlayerId = remaining.length > 0 ? remaining[0] : null;
+            }
+        }
+        renderPlayerList();
+    });
+
+    socket.on('all_players_cleared', () => {
+        Object.keys(allSavedPlayers).forEach(id => delete allSavedPlayers[id]);
+        Object.keys(players).forEach(id => {
+            clearTimeout(players[id].actionTimer);
+            clearInterval(players[id].soapInterval);
+            clearTimeout(players[id].throneTimer);
+            players[id].element.remove();
+            delete players[id];
+        });
+        selectedPlayerId = null;
+        document.querySelectorAll('.hp-bar-fill').forEach(bar => bar.style.width = '100%');
+        renderPlayerList();
+        showGachaNotif("🗑️ Semua Data Pou Berhasil Dihapus!");
+    });
+
+    socket.on('dungeon_status', (data) => {
+        const p = data.player;
+        allSavedPlayers[p.id] = p;
+        if (!players[p.id]) spawnPou(p);
+
+        const hpBossBar = document.getElementById(`hp-boss-${Math.min(p.towerFloor || 1, 100)}`);
+        if (hpBossBar) hpBossBar.style.width = '100%';
+
+        updatePou(p, 'start_dungeon');
+        positionPouInDungeon(p);
+        renderPlayerList();
+    });
+
+    socket.on('tower_tick', (data) => {
+        const p = data.player;
+        allSavedPlayers[p.id] = p;
+        if (players[p.id]) {
+            if (data.floorCleared) {
+                const newFl = Math.min(p.towerFloor || 1, 100);
+                const newBar = document.getElementById(`hp-boss-${newFl}`);
+                if (newBar) newBar.style.width = '100%';
+            }
+
+            updatePou(p, 'attack');
+            triggerDungeonAttack(p.id);
+
+            if (data.leveledUp) {
+                showLocalPouEffect(p.id, "⭐ LEVEL UP!");
+            }
+
+            if (p.inDungeon) {
+                positionPouInDungeon(p);
+            }
+
+            if (data.playerDied) {
+                resetPouToRoom(p.id);
+                const hpBossBar = document.getElementById(`hp-boss-${Math.min(p.towerFloor || 1, 100)}`);
+                if (hpBossBar) hpBossBar.style.width = '100%';
+            }
+        }
+    });
+
+    socket.on('set_throne', (data) => {
+        if (data.player) allSavedPlayers[data.id] = data.player;
+        if (!players[data.id] && allSavedPlayers[data.id]) {
+            spawnPou(allSavedPlayers[data.id]);
+        }
+        if (players[data.id]) {
+            const p = players[data.id];
+            p.isBusy = true;
+            clearTimeout(p.throneTimer);
+
+            p.element.style.left = `calc(38% - 62px)`;
+            p.element.style.top = `calc(50% - 45px)`;
+            showLocalPouEffect(data.id, "👑 RAJA TAHTA!");
+
+            p.throneTimer = setTimeout(() => {
+                if (players[data.id]) {
+                    players[data.id].isBusy = false;
+                    resetPouToRoom(data.id);
+                }
+            }, 10000);
+        }
+    });
+
+    socket.on('user_show', (data) => {
+        if (data.player) {
+            allSavedPlayers[data.id] = data.player;
+        }
+        if (!players[data.id] && allSavedPlayers[data.id]) {
+            spawnPou(allSavedPlayers[data.id]);
+            showLocalPouEffect(data.id, "✨ HADIR!");
+        }
+        if (players[data.id]) {
+            selectedPlayerId = data.id;
+            const p = players[data.id].data;
+            triggerHop(data.id);
+            showLocalPouEffect(data.id, "👋 Halo!");
+            updateBossBarForSelectedPlayer(p);
+            if (p.inDungeon) {
+                const targetCard = document.getElementById(`floor-card-${Math.min(p.towerFloor || 1, 100)}`);
+                if (targetCard) targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+        renderPlayerList();
+    });
+
+    function positionPouInDungeon(p) {
+        const fl = Math.min(p.towerFloor || 1, 100);
+        const targetCard = document.getElementById(`floor-card-${fl}`);
+        if (targetCard && players[p.id]) {
+            const rect = targetCard.getBoundingClientRect();
+            players[p.id].x = rect.left + 8;
+            players[p.id].y = rect.top + 22;
+            players[p.id].element.style.left = `${players[p.id].x}px`;
+            players[p.id].element.style.top = `${players[p.id].y}px`;
+
+            if (selectedPlayerId === p.id || !selectedPlayerId) {
+                targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    }
+
+    function updateBossBarForSelectedPlayer(pData) {
+        const fl = Math.min(pData.towerFloor || 1, 100);
+        document.querySelectorAll('.hp-bar-fill').forEach(bar => {
+            if (bar.id !== `hp-boss-${fl}`) bar.style.width = '100%';
+        });
+
+        document.querySelectorAll('.dungeon-floor-card').forEach(el => el.classList.remove('active-floor'));
+        const activeCard = document.getElementById(`floor-card-${fl}`);
+        if (activeCard) activeCard.classList.add('active-floor');
+
+        const hpBossBar = document.getElementById(`hp-boss-${fl}`);
+        if (hpBossBar) {
+            const pct = Math.max(0, (pData.bossHp / pData.bossMaxHp) * 100);
+            hpBossBar.style.width = `${pct}%`;
+        }
+    }
+
+    function spawnPou(pData) {
+        if (players[pData.id]) return;
+        const posX = Math.floor(Math.random() * (window.innerWidth * 0.50)) + (window.innerWidth * 0.12);
+        const posY = Math.floor(window.innerHeight - 175);
+        const card = document.createElement('div');
+        card.className = 'pou-card';
+        card.id = `pou-${pData.id}`;
+        card.style.left = `${posX}px`;
+        card.style.top = `${posY}px`;
+
+        const currentFloor = pData.towerFloor || 1;
+        card.innerHTML = `
+            <div class="pou-svg-wrapper" id="body-${pData.id}">
+                <div id="svg-holder-${pData.id}">${renderPouSVG(pData.outfit, pData.weapon, "normal")}</div>
+                <div id="bath-${pData.id}"></div>
+            </div>
+            <div class="pou-info">
+                <div class="pou-name">${pData.name}</div>
+                <div class="pou-level-tag" id="level-${pData.id}">⭐ Level ${pData.level || 1}</div>
+                <div class="pou-floor-tag" id="floor-${pData.id}">🏰 Lantai ${currentFloor}</div>
+                <div class="hp-bar-small" title="Darah Pemain"><div class="hp-fill-small" id="hp-${pData.id}"></div></div>
+                <div class="hp-bar-small" title="Darah Boss Pribadi" style="margin-top:2px; height:4px; background:#2b1115;"><div id="bosshp-mini-${pData.id}" style="width:100%; height:100%; background:#ff4b5c; transition:width 0.25s;"></div></div>
+            </div>
+        `;
+        board.appendChild(card);
+        players[pData.id] = { data: pData, element: card, x: posX, y: posY, isBusy: false, actionTimer: null, soapInterval: null, throneTimer: null };
+        if (!selectedPlayerId) selectedPlayerId = pData.id;
+        updatePou(pData);
+    }
+
+    function updatePou(pData, action) {
+        const p = players[pData.id];
+        if (!p) return;
+        p.data = pData;
+
+        document.getElementById(`level-${pData.id}`).innerText = `⭐ Level ${pData.level || 1}`;
+        document.getElementById(`floor-${pData.id}`).innerText = `🏰 Lantai ${pData.towerFloor || 1}`;
+
+        const hpPct = Math.max(0, (pData.hp / pData.maxHp) * 100);
+        document.getElementById(`hp-${pData.id}`).style.width = `${hpPct}%`;
+
+        const bossPct = Math.max(0, (pData.bossHp / pData.bossMaxHp) * 100);
+        const miniBossBar = document.getElementById(`bosshp-mini-${pData.id}`);
+        if (miniBossBar) miniBossBar.style.width = `${bossPct}%`;
+
+        const bodyEl = document.getElementById(`body-${pData.id}`);
+        const svgHolder = document.getElementById(`svg-holder-${pData.id}`);
+        const bath = document.getElementById(`bath-${pData.id}`);
+
+        if (action !== 'feed' && action !== 'drink' && action !== 'clean') {
+            if (!p.isBusy) {
+                svgHolder.innerHTML = renderPouSVG(pData.outfit, pData.weapon, "normal");
+                if (action !== 'attack') triggerHop(pData.id);
+            }
+        }
+
+        if (action === 'feed') {
+            clearTimeout(p.actionTimer);
+            clearInterval(p.soapInterval);
+            bath.className = '';
+            p.isBusy = true;
+
+            svgHolder.innerHTML = renderPouSVG(pData.outfit, pData.weapon, "feed");
+            bodyEl.classList.add('pou-chew-anim');
+            showLocalPouEffect(pData.id, "🍔😋 Nyam!");
+
+            p.actionTimer = setTimeout(() => {
+                if (players[pData.id]) {
+                    p.isBusy = false;
+                    bodyEl.classList.remove('pou-chew-anim');
+                    svgHolder.innerHTML = renderPouSVG(p.data.outfit, p.data.weapon, "normal");
+                }
+            }, 2500);
+        } 
+        else if (action === 'drink') {
+            clearTimeout(p.actionTimer);
+            clearInterval(p.soapInterval);
+            bath.className = '';
+            p.isBusy = true;
+
+            svgHolder.innerHTML = renderPouSVG(pData.outfit, pData.weapon, "drink");
+            bodyEl.classList.add('pou-chew-anim');
+            showLocalPouEffect(pData.id, "☕✨ Segar!");
+
+            p.actionTimer = setTimeout(() => {
+                if (players[pData.id]) {
+                    p.isBusy = false;
+                    bodyEl.classList.remove('pou-chew-anim');
+                    svgHolder.innerHTML = renderPouSVG(p.data.outfit, p.data.weapon, "normal");
+                }
+            }, 2500);
+        } 
+        else if (action === 'clean') {
+            clearTimeout(p.actionTimer);
+            clearInterval(p.soapInterval);
+            bodyEl.classList.remove('pou-chew-anim', 'pou-hop');
+            
+            p.isBusy = true;
+            bath.className = 'bathtub-overlay';
+            svgHolder.innerHTML = renderPouSVG(pData.outfit, pData.weapon, "clean");
+            showLocalPouEffect(pData.id, "🫧🧼 Mandi!");
+
+            p.soapInterval = setInterval(() => {
+                const bubbles = ["🫧", "🧼", "✨", "🫧"];
+                const randBubble = bubbles[Math.floor(Math.random() * bubbles.length)];
+                const offsetX = Math.floor(Math.random() * 60) - 30;
+                showLocalPouEffect(pData.id, randBubble, offsetX);
+            }, 650);
+
+            p.actionTimer = setTimeout(() => {
+                clearInterval(p.soapInterval);
+                if (players[pData.id]) {
+                    bath.className = '';
+                    p.isBusy = false;
+                    svgHolder.innerHTML = renderPouSVG(p.data.outfit, p.data.weapon, "normal");
+                    triggerHop(pData.id);
+                }
+            }, 3500);
+        }
+
+        if (selectedPlayerId === pData.id) {
+            updateBossBarForSelectedPlayer(pData);
+        }
+    }
+
+    function triggerHop(id) {
+        const body = document.getElementById(`body-${id}`);
+        if (body) { body.classList.remove('pou-hop'); void body.offsetWidth; body.classList.add('pou-hop'); }
+    }
+
+    function triggerDungeonAttack(id) {
+        const body = document.getElementById(`body-${id}`);
+        if (body) { body.classList.remove('pou-attack-anim'); void body.offsetWidth; body.classList.add('pou-attack-anim'); }
+    }
+
+    function resetPouToRoom(id) {
+        if (players[id]) {
+            players[id].x = Math.floor(Math.random() * (window.innerWidth * 0.50)) + (window.innerWidth * 0.12);
+            const targetY = window.innerHeight - 175;
+            players[id].element.style.left = `${players[id].x}px`;
+            players[id].element.style.top = `${targetY}px`;
+            showLocalPouEffect(id, "💖 FULL HP!");
+            triggerHop(id);
+            const hpBar = document.getElementById(`hp-${id}`);
+            if (hpBar) hpBar.style.width = '100%';
+            const miniBossBar = document.getElementById(`bosshp-mini-${id}`);
+            if (miniBossBar) miniBossBar.style.width = '100%';
+        }
+    }
+
+    setInterval(() => {
+        Object.keys(players).forEach(id => {
+            const p = players[id];
+            if (!p.data.inDungeon && !p.isBusy) {
+                const dir = Math.random() > 0.5 ? 1 : -1;
+                let newX = p.x + (dir * 50);
+                if (newX > (window.innerWidth * 0.10) && newX < (window.innerWidth * 0.65)) {
+                    p.x = newX;
+                    p.element.style.left = `${p.x}px`;
+                    p.element.style.top = `${window.innerHeight - 175}px`;
+                    triggerHop(id);
+                }
+            }
+        });
+    }, 2800);
+
+    function showLocalPouEffect(id, text, offsetX = 0) {
+        const wrapper = document.getElementById(`body-${id}`);
+        if (!wrapper) return;
+        const el = document.createElement('div');
+        el.className = 'pou-local-effect';
+        el.innerText = text;
+        el.style.left = `calc(50% + ${offsetX}px)`;
+        el.style.top = `-12px`;
+        wrapper.appendChild(el);
+        setTimeout(() => el.remove(), 1300);
+    }
+
+    function showGachaNotif(text) {
+        const pop = document.getElementById('gacha-popup'); pop.innerText = text; pop.classList.add('active');
+        setTimeout(() => pop.classList.remove('active'), 3500);
+    }
+
+    function togglePlayerModal() {
+        const modal = document.getElementById('player-modal');
+        modal.style.display = modal.style.display === 'block' ? 'none' : 'block';
+        renderPlayerList();
+    }
+
+    function renderPlayerList() {
+        const listEl = document.getElementById('player-list');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        Object.keys(allSavedPlayers).forEach(id => {
+            const p = allSavedPlayers[id];
+            const statusIcon = players[id] ? "🟢" : "💤";
+            const item = document.createElement('div'); item.className = 'player-item';
+            item.innerHTML = `
+                <span>${statusIcon} <b>${p.name}</b> (Lv.${p.level || 1} | Fl.${p.towerFloor || 1})</span>
+                <div class="btn-action-group">
+                    <button class="btn-show" onclick="showPlayer('${id}')" title="Munculkan / Fokus">👁️</button>
+                    <button class="btn-throne" onclick="putOnThrone('${id}')" title="Duduk Tahta">👑</button>
+                    <button onclick="deleteSinglePlayer('${id}')" style="background:#dc2626; color:#fff; border:none; padding:4px 6px; border-radius:4px; font-weight:bold; cursor:pointer;" title="Hapus">🗑️</button>
+                </div>
+            `;
+            listEl.appendChild(item);
+        });
+    }
+
+    function showPlayer(id) { socket.emit('test_cmd', { id: id, cmd: 'shw' }); togglePlayerModal(); }
+    function putOnThrone(id) { socket.emit('test_cmd', { id: id, cmd: 'throne' }); togglePlayerModal(); }
+    function deleteSinglePlayer(id) { socket.emit('test_cmd', { id: id, cmd: 'delete_player' }); }
+    function clearAllPlayers() {
+        if (confirm("Hapus semua Pou yang ada di istana dan reset database?")) {
+            socket.emit('test_cmd', { cmd: 'clear_all' });
+        }
+    }
+
+    function filterPlayers() {
+        const query = document.getElementById('search-input').value.toLowerCase();
+        document.querySelectorAll('.player-item').forEach(item => { item.style.display = item.innerText.toLowerCase().includes(query) ? 'flex' : 'none'; });
+    }
+</script>
+</body>
+</html>

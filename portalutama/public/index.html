@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Game TikTok Live</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+        body {
+            background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #09090b 75%);
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 36px 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .header h1 {
+            font-size: 30px;
+            font-weight: 800;
+            background: linear-gradient(90deg, #facc15, #f472b6, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+        .header p { color: #94a3b8; font-size: 14px; }
+
+        /* BAR KONEKSI TIKTOK LIVE PUSAT */
+        .tiktok-bar {
+            width: 100%;
+            max-width: 880px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1.5px solid #334155;
+            border-radius: 16px;
+            padding: 16px 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+        .tiktok-input-group {
+            display: flex;
+            gap: 10px;
+            flex: 1;
+            min-width: 260px;
+        }
+        .tiktok-input-group input {
+            flex: 1;
+            background: #1e293b;
+            border: 1px solid #475569;
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+        }
+        .tiktok-input-group input:focus { border-color: #38bdf8; }
+        .status-pill {
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 12.5px;
+            font-weight: 700;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.35);
+        }
+        .status-pill.online {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.35);
+        }
+
+        /* GRID KARTU PILIHAN GAME */
+        .games-grid {
+            width: 100%;
+            max-width: 880px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 24px;
+        }
+        .game-card {
+            background: rgba(17, 24, 39, 0.9);
+            border: 2px solid #27272a;
+            border-radius: 22px;
+            padding: 26px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+        }
+        .game-card:hover { transform: translateY(-4px); }
+        .game-card.active-card {
+            border-color: #facc15;
+            box-shadow: 0 0 30px rgba(250, 204, 21, 0.22);
+        }
+        .active-tag {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            background: #facc15;
+            color: #09090b;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 5px 12px;
+            border-radius: 999px;
+            display: none;
+        }
+        .game-card.active-card .active-tag { display: inline-block; }
+
+        .game-icon { font-size: 46px; margin-bottom: 14px; }
+        .game-title { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+        .game-desc {
+            font-size: 13.5px;
+            color: #94a3b8;
+            line-height: 1.5;
+            margin-bottom: 22px;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        button, a.btn {
+            border: none;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 13.5px;
+            font-weight: 700;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            transition: filter 0.15s, transform 0.1s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        button:hover, a.btn:hover { filter: brightness(1.12); }
+        button:active, a.btn:active { transform: scale(0.98); }
+
+        .btn-primary { background: #3b82f6; color: #fff; }
+        .btn-activate { background: #eab308; color: #09090b; }
+        .btn-activate.is-active { background: #10b981; color: #022c22; }
+        .btn-play { background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff; }
+        .btn-admin { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🎮 PORTAL GAME INTERAKTIF TIKTOK LIVE</h1>
+        <p>Satu pintu untuk mengatur koneksi Live, memilih game aktif, dan membuka layar OBS</p>
+    </div>
+
+    <!-- KONEKSI TIKTOK LIVE -->
+    <div class="tiktok-bar">
+        <div class="tiktok-input-group">
+            <input type="text" id="tiktok-username" placeholder="Masukkan Username TikTok (tanpa @)...">
+            <button class="btn-primary" onclick="connectTikTok()">📡 Hubungkan Live</button>
+        </div>
+        <div class="status-pill" id="live-status">⚪ Belum Terhubung</div>
+    </div>
+
+    <!-- PILIHAN GAME -->
+    <div class="games-grid">
+        <!-- KARTU 1: GAME POU -->
+        <div class="game-card" id="card-pou">
+            <span class="active-tag">🟢 SEDANG AKTIF DI LIVE</span>
+            <div>
+                <div class="game-icon">🥔👑</div>
+                <div class="game-title">Pou Kerajaan & Dungeon</div>
+                <div class="game-desc">
+                    Penonton ketik <b>ee</b> untuk spawn Pou, kirim gift untuk makan/minum/mandi, gacha senjata & kostum, serta bertarung di Solo Dungeon 100 lantai.
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn-activate" id="btn-act-pou" onclick="setActiveGame('pou')">⚡ Aktifkan Game Pou</button>
+                <div class="btn-row">
+                    <a href="/pou/index.html" target="_blank" class="btn btn-play">📺 Layar Game</a>
+                    <a href="/pou/admin.html" target="_blank" class="btn btn-admin">🛠️ Admin Pou</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- KARTU 2: GAME GACHA CAPIT -->
+        <div class="game-card" id="card-capit">
+            <span class="active-tag">🟢 SEDANG AKTIF DI LIVE</span>
+            <div>
+                <div class="game-icon">🕹️🎁</div>
+                <div class="game-title">Gacha Capit Peti Tantangan</div>
+                <div class="game-desc">
+                    Penonton kirim gift masuk antrean Tier 1–9, lalu ketik angka <b>01–10</b> di komentar untuk menggerakkan mesin capit dan membuka peti tantangan.
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn-activate" id="btn-act-capit" onclick="setActiveGame('capit')">⚡ Aktifkan Game Capit</button>
+                <div class="btn-row">
+                    <a href="/capit/index.html" target="_blank" class="btn btn-play">📺 Layar Game</a>
+                    <a href="/capit/admin.html" target="_blank" class="btn btn-admin">🛠️ Admin Capit</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const portalSocket = io('/portal');
+
+        portalSocket.on('portal_state', ({ activeGame, tiktokStatus }) => {
+            // Update tampilan kartu aktif
+            document.getElementById('card-pou').classList.toggle('active-card', activeGame === 'pou');
+            document.getElementById('card-capit').classList.toggle('active-card', activeGame === 'capit');
+
+            const btnPou = document.getElementById('btn-act-pou');
+            const btnCapit = document.getElementById('btn-act-capit');
+
+            btnPou.innerText = activeGame === 'pou' ? '✅ Game Pou Aktif' : '⚡ Aktifkan Game Pou';
+            btnPou.classList.toggle('is-active', activeGame === 'pou');
+
+            btnCapit.innerText = activeGame === 'capit' ? '✅ Game Capit Aktif' : '⚡ Aktifkan Game Capit';
+            btnCapit.classList.toggle('is-active', activeGame === 'capit');
+
+            // Update status koneksi TikTok
+            const statusEl = document.getElementById('live-status');
+            if (tiktokStatus.connected) {
+                statusEl.className = 'status-pill online';
+                statusEl.innerText = `🟢 Live Terhubung: @${tiktokStatus.username}`;
+                if (!document.getElementById('tiktok-username').value) {
+                    document.getElementById('tiktok-username').value = tiktokStatus.username;
+                }
+            } else {
+                statusEl.className = 'status-pill';
+                statusEl.innerText = tiktokStatus.error ? `🔴 ${tiktokStatus.error}` : '⚪ Belum Terhubung';
+            }
+        });
+
+        async function connectTikTok() {
+            const username = document.getElementById('tiktok-username').value.trim();
+            if (!username) return alert('Isi username TikTok terlebih dahulu!');
+            await fetch('/api/connect-tiktok', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+        }
+
+        async function setActiveGame(game) {
+            await fetch('/api/set-active-game', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ game })
+            });
+        }
+    </script>
+</body>
+</html>

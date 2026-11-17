@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Gacha Kotak TikTok</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #090d16;
+            --bg-card: #111827;
+            --bg-input: #1f2937;
+            --border: #374151;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --success: #10b981;
+            --danger: #ef4444;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+        body {
+            background: var(--bg-main);
+            color: var(--text-main);
+            padding: 24px 16px 80px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .topbar h1 {
+            font-size: 22px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-badge {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .status-badge.online {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+        .top-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        }
+        .card-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #e5e7eb;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .form-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        input, select {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus {
+            border-color: var(--primary);
+        }
+        button {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover { background: var(--primary-hover); }
+        button.btn-success { background: var(--success); color: #022c22; font-weight: 700; }
+        button.btn-success:hover { background: #059669; color: #fff; }
+        button.btn-danger { background: var(--danger); }
+        button.btn-danger:hover { background: #dc2626; }
+        button.btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+        button.btn-ghost:hover {
+            border-color: #9ca3af;
+            color: #fff;
+        }
+        .tier-tabs {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            margin-bottom: 18px;
+            border-bottom: 1px solid var(--border);
+        }
+        .tier-tab {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 10px 14px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        .tier-tab.active {
+            background: #1e293b;
+            color: #fff;
+            border-color: var(--active-color, #3b82f6);
+            box-shadow: 0 0 12px color-mix(in srgb, var(--active-color, #3b82f6) 35%, transparent);
+        }
+        .tier-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .tier-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 14px;
+            border-radius: 12px;
+            margin-bottom: 18px;
+        }
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .field-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        .challenge-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+            gap: 12px;
+        }
+        @media (max-width: 520px) {
+            .challenge-list { grid-template-columns: 1fr; }
+        }
+        .challenge-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(31, 41, 55, 0.5);
+            padding: 8px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .box-badge {
+            font-size: 12px;
+            font-weight: 800;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: var(--bg-main);
+            color: #38bdf8;
+            min-width: 72px;
+            text-align: center;
+        }
+        .challenge-item input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 6px;
+            font-size: 14px;
+        }
+        .challenge-item input:focus {
+            background: var(--bg-input);
+            border-radius: 6px;
+        }
+        .btn-remove {
+            padding: 6px 10px;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-radius: 8px;
+        }
+        .btn-remove:hover {
+            background: var(--danger);
+            color: #fff;
+        }
+        .save-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(17, 24, 39, 0.92);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 50;
+        }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #10b981;
+            color: #022c22;
+            font-weight: 700;
+            padding: 12px 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+            display: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+<div class="toast" id="toast">✅ Berhasil diperbarui!</div>
+
+<div class="container">
+    <div class="topbar">
+        <h1>🎮 Admin Panel Gacha Tantangan</h1>
+        <div id="tiktok-status" class="status-badge">⚪ TikTok Live: Belum Terhubung</div>
+    </div>
+
+    <!-- KONEKSI & SIMULASI -->
+    <div class="top-grid">
+        <div class="card">
+            <div class="card-title">📡 1. Koneksi TikTok Live</div>
+            <div class="form-row">
+                <input type="text" id="tiktok-user" placeholder="Username TikTok (tanpa @)" style="flex:1;">
+                <button onclick="connectTikTok()">Hubungkan</button>
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">
+                Pastikan akun TikTok sudah berstatus LIVE sebelum menekan tombol Hubungkan.
+            </p>
+        </div>
+
+        <div class="card">
+            <div class="card-title">🧪 2. Simulasi & Kontrol Giliran</div>
+            <div class="form-row" style="margin-bottom: 10px;">
+                <input type="text" id="sim-name" value="Sultan_Budi" placeholder="Nama Penonton" style="width: 130px;">
+                <select id="sim-coins" style="flex:1;"></select>
+                <button class="btn-success" onclick="simGift()">▶ Test Gift</button>
+            </div>
+            <div class="form-row">
+                <input type="number" id="sim-box" min="1" max="10" value="1" style="width: 70px;">
+                <button onclick="simPick()">Pilih Kotak</button>
+                <button class="btn-danger" onclick="skipTurn()">⏭ Skip Giliran</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- REMOTE GANTI TEMA LAYAR LIVE -->
+    <div class="card" style="margin-bottom: 18px;">
+        <div class="card-title">🎨 Ganti Tema Layar TikTok Live (Real-Time)</div>
+        <div class="form-row">
+            <button class="btn-ghost theme-remote-btn" data-t="candy" onclick="changeLiveTheme('candy')">🍬 Candy</button>
+            <button class="btn-ghost theme-remote-btn" data-t="naruto" onclick="changeLiveTheme('naruto')">🍥 Naruto</button>
+            <button class="btn-ghost theme-remote-btn" data-t="wood" onclick="changeLiveTheme('wood')">🪵 Kayu</button>
+            <button class="btn-ghost theme-remote-btn" data-t="ai" onclick="changeLiveTheme('ai')">🤖 AI / Robot</button>
+            <button class="btn-ghost theme-remote-btn" data-t="nature" onclick="changeLiveTheme('nature')">🏞️ Pemandangan Alam</button>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">
+            Klik salah satu tema di atas untuk langsung mengubah tampilan layar di TikTok Live Studio / OBS tanpa refresh link.
+        </p>
+    </div>
+
+    <!-- PENGATURAN CUSTOM TANTANGAN TIER 1 - 9 -->
+    <div class="card">
+        <div class="card-title">
+            <span>🏆 3. Custom Teks Tantangan (Tier 1 sampai Tier 9)</span>
+            <button class="btn-ghost" onclick="addChallengeSlot()">+ Tambah Baris Tantangan</button>
+        </div>
+
+        <div class="tier-tabs" id="tier-tabs"></div>
+
+        <div class="tier-meta">
+            <div class="field-group">
+                <label>Nama Tier</label>
+                <input type="text" id="tier-name" oninput="syncCurrentTierMeta()">
+            </div>
+            <div class="field-group">
+                <label>Minimal Koin Gift</label>
+                <input type="number" id="tier-coins" min="1" oninput="syncCurrentTierMeta()">
+            </div>
+            <div class="field-group">
+                <label>Warna Tema Kotak & Glow</label>
+                <input type="color" id="tier-color" style="height: 40px; width: 100%; padding: 2px;" oninput="syncCurrentTierMeta()">
+            </div>
+        </div>
+
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+            Isi teks tantangan di bawah ini khusus untuk <strong id="active-tier-label" style="color:#fff;">Tier 1</strong>. Setiap baris akan diacak ke dalam 10 kotak misteri saat penonton mendapat giliran pada tier ini.
+        </p>
+
+        <div class="challenge-list" id="challenge-list"></div>
+    </div>
+</div>
+
+<div class="save-bar">
+    <span style="font-size: 13px; color: var(--text-muted);">
+        Perubahan langsung tersimpan ke <code>challenges.json</code> & otomatis update ke layar OBS.
+    </span>
+    <button class="btn-success" style="padding: 12px 24px; font-size: 14px;" onclick="saveAllConfig()">
+        💾 Simpan Semua Pengaturan Tier
+    </button>
+</div>
+
+<script>
+    const socket = io('/capit');
+    let configData = null;
+    let activeTierIdx = 0;
+
+    function showToast(msg) {
+        const toast = document.getElementById('toast');
+        toast.innerText = msg;
+        toast.style.display = 'block';
+        setTimeout(() => { toast.style.display = 'none'; }, 2500);
+    }
+
+    async function changeLiveTheme(themeName) {
+        await fetch('/api/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: themeName })
+        });
+        if (configData) configData.activeTheme = themeName;
+        highlightActiveThemeBtn(themeName);
+        showToast(`🎨 Tema diubah ke ${themeName.toUpperCase()}!`);
+    }
+
+    function highlightActiveThemeBtn(themeName) {
+        document.querySelectorAll('.theme-remote-btn').forEach(btn => {
+            if (btn.dataset.t === themeName) {
+                btn.style.background = 'var(--primary)';
+                btn.style.color = '#fff';
+                btn.style.borderColor = 'var(--primary)';
+            } else {
+                btn.style.background = 'transparent';
+                btn.style.color = 'var(--text-muted)';
+                btn.style.borderColor = 'var(--border)';
+            }
+        });
+    }
+
+    socket.on('tiktok_status', (status) => {
+        const badge = document.getElementById('tiktok-status');
+        if (status.connected) {
+            badge.className = 'status-badge online';
+            badge.innerText = `🟢 Terhubung: @${status.username}`;
+        } else {
+            badge.className = 'status-badge';
+            badge.innerText = `🔴 Gagal / Terputus`;
+        }
+    });
+
+    async function fetchConfig() {
+        const res = await fetch('/api/config');
+        configData = await res.json();
+        highlightActiveThemeBtn(configData.activeTheme || 'candy');
+        renderTierTabs();
+        renderSimDropdown();
+        selectTier(0);
+    }
+
+    function renderSimDropdown() {
+        const simSelect = document.getElementById('sim-coins');
+        simSelect.innerHTML = '';
+        configData.tiers.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.minCoins;
+            opt.innerText = `${t.minCoins} Koin (${t.name})`;
+            simSelect.appendChild(opt);
+        });
+    }
+
+    function renderTierTabs() {
+        const tabsContainer = document.getElementById('tier-tabs');
+        tabsContainer.innerHTML = '';
+        configData.tiers.forEach((tier, idx) => {
+            const tab = document.createElement('div');
+            tab.className = `tier-tab ${idx === activeTierIdx ? 'active' : ''}`;
+            tab.style.setProperty('--active-color', tier.color);
+            tab.onclick = () => selectTier(idx);
+            tab.innerHTML = `
+                <span class="tier-dot" style="background:${tier.color};"></span>
+                <span>Tier ${tier.id}: ${tier.name} (${tier.minCoins}c)</span>
+            `;
+            tabsContainer.appendChild(tab);
+        });
+    }
+
+    function selectTier(idx) {
+        activeTierIdx = idx;
+        renderTierTabs();
+
+        const tier = configData.tiers[idx];
+        document.getElementById('tier-name').value = tier.name;
+        document.getElementById('tier-coins').value = tier.minCoins;
+        document.getElementById('tier-color').value = tier.color;
+        document.getElementById('active-tier-label').innerText = `Tier ${tier.id} (${tier.name})`;
+
+        renderChallengeInputs();
+    }
+
+    function syncCurrentTierMeta() {
+        const tier = configData.tiers[activeTierIdx];
+        tier.name = document.getElementById('tier-name').value;
+        tier.minCoins = parseInt(document.getElementById('tier-coins').value, 10) || 1;
+        tier.color = document.getElementById('tier-color').value;
+        document.getElementById('active-tier-label').innerText = `Tier ${tier.id} (${tier.name})`;
+        renderTierTabs();
+        renderSimDropdown();
+    }
+
+    function renderChallengeInputs() {
+        const list = document.getElementById('challenge-list');
+        list.innerHTML = '';
+        const tier = configData.tiers[activeTierIdx];
+
+        while (tier.challenges.length < 10) {
+            tier.challenges.push('');
+        }
+
+        tier.challenges.forEach((text, cIdx) => {
+            const item = document.createElement('div');
+            item.className = 'challenge-item';
+            const num = cIdx + 1 < 10 ? `0${cIdx + 1}` : cIdx + 1;
+            item.innerHTML = `
+                <span class="box-badge">Slot #${num}</span>
+                <input type="text" value="${escapeHtml(text)}" placeholder="Ketik teks tantangan di sini..." oninput="updateChallengeText(${cIdx}, this.value)">
+                ${tier.challenges.length > 10 ? `<button class="btn-remove" onclick="removeChallengeSlot(${cIdx})" title="Hapus">✕</button>` : ''}
+            `;
+            list.appendChild(item);
+        });
+    }
+
+    function updateChallengeText(cIdx, val) {
+        configData.tiers[activeTierIdx].challenges[cIdx] = val;
+    }
+
+    function addChallengeSlot() {
+        configData.tiers[activeTierIdx].challenges.push('');
+        renderChallengeInputs();
+    }
+
+    function removeChallengeSlot(cIdx) {
+        configData.tiers[activeTierIdx].challenges.splice(cIdx, 1);
+        renderChallengeInputs();
+    }
+
+    async function saveAllConfig() {
+        configData.tiers.forEach(t => {
+            t.challenges = t.challenges.map(s => s.trim()).filter(s => s.length > 0);
+            if (t.challenges.length === 0) {
+                t.challenges = ['Tantangan bebas dari Gifter!'];
+            }
+        });
+
+        await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(configData)
+        });
+
+        renderChallengeInputs();
+        showToast('✅ Semua perubahan Tier berhasil disimpan!');
+    }
+
+    async function connectTikTok() {
+        const username = document.getElementById('tiktok-user').value.trim();
+        if (!username) return alert('Masukkan username TikTok terlebih dahulu!');
+        await fetch('/api/connect-tiktok', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+        });
+    }
+
+    async function simGift() {
+        const nickname = document.getElementById('sim-name').value;
+        const coins = document.getElementById('sim-coins').value;
+        await fetch('/api/simulate-gift', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nickname, coins })
+        });
+    }
+
+    async function simPick() {
+        const boxNumber = document.getElementById('sim-box').value;
+        await fetch('/api/simulate-pick', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ boxNumber })
+        });
+    }
+
+    async function skipTurn() {
+        await fetch('/api/skip-turn', { method: 'POST' });
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    fetchConfig();
+</script>
+</body>
+</html>
