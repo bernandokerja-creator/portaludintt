@@ -4,16 +4,17 @@ window.createVercelSocket = function(namespace) {
     let lastSeq = 0;
     let initialized = false;
 
-    // Jika membuka halaman Capit, otomatis kunci localStorage ke 'capit'
     if (ns === 'capit') {
         localStorage.setItem('tiktok_active_game', 'capit');
     }
 
     const playedTurns = new Set(JSON.parse(sessionStorage.getItem('played_capit_turns') || '[]'));
-    function markTurnPlayed(id) {
+    const revealedTurns = new Set(JSON.parse(sessionStorage.getItem('revealed_capit_turns') || '[]'));
+
+    function markTurn(setObj, key, id) {
         if (!id) return;
-        playedTurns.add(id);
-        sessionStorage.setItem('played_capit_turns', JSON.stringify(Array.from(playedTurns).slice(-50)));
+        setObj.add(id);
+        sessionStorage.setItem(key, JSON.stringify(Array.from(setObj).slice(-50)));
     }
 
     function trigger(event, payload) {
@@ -26,9 +27,9 @@ window.createVercelSocket = function(namespace) {
         try {
             const savedUser = localStorage.getItem('tiktok_live_user') || '';
             const savedGame = ns === 'capit' ? 'capit' : (localStorage.getItem('tiktok_active_game') || '');
-            const url = `/api/sync?ns=${ns}&since=${lastSeq}&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}`;
+            const url = `/api/sync?ns=${ns}&since=${lastSeq}&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}&t=${Date.now()}`;
 
-            const res = await fetch(url);
+            const res = await fetch(url, { cache: 'no-store' });
             const data = await res.json();
 
             if (!initialized) {
@@ -46,7 +47,7 @@ window.createVercelSocket = function(namespace) {
                     trigger('init_state', data.state.capit);
                     trigger('tiktok_status', data.state.tiktokStatus);
                     if (data.state.capit?.currentTurn?.turnId) {
-                        markTurnPlayed(data.state.capit.currentTurn.turnId);
+                        markTurn(playedTurns, 'played_capit_turns', data.state.capit.currentTurn.turnId);
                     }
                 }
             } else {
@@ -55,9 +56,14 @@ window.createVercelSocket = function(namespace) {
                 } else {
                     lastSeq = data.seq;
                     data.events.forEach(ev => {
-                        if (ev.event === 'start_turn' && ev.payload?.player?.turnId) {
-                            if (playedTurns.has(ev.payload.player.turnId)) return;
-                            markTurnPlayed(ev.payload.player.turnId);
+                        const tid = ev.payload?.player?.turnId;
+                        if (ev.event === 'start_turn' && tid) {
+                            if (playedTurns.has(tid)) return;
+                            markTurn(playedTurns, 'played_capit_turns', tid);
+                        }
+                        if (ev.event === 'reveal_box' && tid) {
+                            if (revealedTurns.has(tid)) return;
+                            markTurn(revealedTurns, 'revealed_capit_turns', tid);
                         }
                         trigger(ev.event, ev.payload);
                     });
@@ -66,7 +72,7 @@ window.createVercelSocket = function(namespace) {
                 if (ns === 'capit' && data.state?.capit?.currentTurn) {
                     const turn = data.state.capit.currentTurn;
                     if (turn.turnId && !playedTurns.has(turn.turnId) && !turn.isRevealing) {
-                        markTurnPlayed(turn.turnId);
+                        markTurn(playedTurns, 'played_capit_turns', turn.turnId);
                         trigger('start_turn', {
                             player: turn,
                             queueLength: data.state.capit.queueLength || 0,

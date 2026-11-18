@@ -101,25 +101,29 @@ async function connectTikTok(username) {
         const giftType = data.giftType ?? data.gift?.type ?? data.giftDetails?.giftType;
         if (giftType === 1 && data.repeatEnd === false) return;
 
-        const diamondCount = Number(
-            data.diamondCount ??
-            data.gift?.diamond_count ??
-            data.giftDetails?.diamondCount ??
-            data.extendedGiftInfo?.diamond_count ??
+        // Ambil nilai koin satuan dari semua kemungkinan properti TikTok
+        const unitCoins = Number(
+            data.diamondCount ||
+            data.giftDetails?.diamondCount ||
+            data.gift?.diamond_count ||
+            data.gift?.diamondCount ||
+            data.extendedGiftInfo?.diamond_count ||
+            data.extendedGiftInfo?.diamondCount ||
             1
         );
-        const repeatCount = Number(data.repeatCount || 1);
-        const totalCoins = Math.max(1, diamondCount * repeatCount);
+        const repeatCount = Number(data.repeatCount || data.comboCount || 1);
+        const totalCoins = Math.max(1, unitCoins * repeatCount);
+
         const giftName = String(
-            data.giftName ??
-            data.gift?.name ??
-            data.giftDetails?.giftName ??
-            data.extendedGiftInfo?.name ??
+            data.giftName ||
+            data.giftDetails?.giftName ||
+            data.gift?.name ||
+            data.extendedGiftInfo?.name ||
             ''
         );
         const userInfo = extractUserInfo(data);
 
-        console.log(`[GIFT MASUK] @${userInfo.uniqueId} kirim ${giftName} (${totalCoins} koin) | Game aktif: ${activeGame}`);
+        console.log(`[GIFT MASUK] @${userInfo.uniqueId} kirim ${giftName} (${unitCoins} x ${repeatCount} = ${totalCoins} koin) | Game: ${activeGame}`);
 
         if (activeGame === 'pou') {
             handlePouGift(userInfo.uniqueId, userInfo.nickname, totalCoins, giftName);
