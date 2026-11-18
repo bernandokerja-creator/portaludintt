@@ -12,6 +12,7 @@ window.createVercelSocket = function(namespace) {
 
     const playedTurns = new Set(JSON.parse(sessionStorage.getItem('played_capit_turns') || '[]'));
     const revealedTurns = new Set(JSON.parse(sessionStorage.getItem('revealed_capit_turns') || '[]'));
+    const processedPouEvents = new Set(JSON.parse(sessionStorage.getItem('processed_pou_events') || '[]'));
 
     const pouSnapshots = new Map();
     const pouBestOutfits = JSON.parse(localStorage.getItem('pou_best_outfits') || '{}');
@@ -53,10 +54,10 @@ window.createVercelSocket = function(namespace) {
         return `${p.name}|${p.level}|${p.hp}|${p.hunger}|${p.thirst}|${p.clean}|${p.outfit}|${p.weapon}|${p.towerFloor}|${p.inDungeon}|${p.isHidden}`;
     }
 
-    function markTurn(setObj, key, id) {
+    function markSessionSet(setObj, key, id) {
         if (!id) return;
         setObj.add(id);
-        sessionStorage.setItem(key, JSON.stringify(Array.from(setObj).slice(-50)));
+        sessionStorage.setItem(key, JSON.stringify(Array.from(setObj).slice(-100)));
     }
 
     function trigger(event, payload) {
@@ -66,7 +67,16 @@ window.createVercelSocket = function(namespace) {
     }
 
     function processEvents(events) {
+        const now = Date.now();
         events.forEach(ev => {
+            // Abaikan event lama (> 12 detik) agar tidak memutar ulang notifikasi/gacha basi saat pindah kontainer
+            if (ev.ts && now - ev.ts > 12000) return;
+
+            // Buat fingerprint unik tiap event agar banner gacha tidak pernah muncul 2x
+            const evKey = `${ev.event}_${ev.ts || ''}_${ev.payload?.player?.id || ev.payload?.id || ''}_${ev.payload?.rewardText || ev.payload?.action || ''}`;
+            if (processedPouEvents.has(evKey)) return;
+            markSessionSet(processedPouEvents, 'processed_pou_events', evKey);
+
             if (ev.event === 'portal_state' && ev.payload?.activeGame) {
                 localStorage.setItem('tiktok_active_game', ev.payload.activeGame);
             }
@@ -86,11 +96,11 @@ window.createVercelSocket = function(namespace) {
             const tid = ev.payload?.player?.turnId;
             if (ev.event === 'start_turn' && tid) {
                 if (playedTurns.has(tid)) return;
-                markTurn(playedTurns, 'played_capit_turns', tid);
+                markSessionSet(playedTurns, 'played_capit_turns', tid);
             }
             if (ev.event === 'reveal_box' && tid) {
                 if (revealedTurns.has(tid)) return;
-                markTurn(revealedTurns, 'revealed_capit_turns', tid);
+                markSessionSet(revealedTurns, 'revealed_capit_turns', tid);
             }
             trigger(ev.event, ev.payload);
         });
@@ -133,7 +143,7 @@ window.createVercelSocket = function(namespace) {
                     trigger('init_state', data.state.capit);
                     trigger('tiktok_status', data.state.tiktokStatus);
                     if (data.state.capit?.currentTurn?.turnId) {
-                        markTurn(playedTurns, 'played_capit_turns', data.state.capit.currentTurn.turnId);
+                        markSessionSet(playedTurns, 'played_capit_turns', data.state.capit.currentTurn.turnId);
                     }
                 }
             } else {
@@ -148,7 +158,7 @@ window.createVercelSocket = function(namespace) {
                     processEvents(data.events || []);
                 }
 
-                // Fallback sinkronisasi state jika event terlewat antar kontainer
+                // Fallback sinkronisasi state jika event terlewat antar kontainer (tanpa banner gacha ulang)
                 if (ns === 'pou' && data.state?.players) {
                     Object.values(data.state.players).forEach(rawP => {
                         const p = syncPouCache(rawP, false);
@@ -165,7 +175,7 @@ window.createVercelSocket = function(namespace) {
                 if (ns === 'capit' && data.state?.capit?.currentTurn) {
                     const turn = data.state.capit.currentTurn;
                     if (turn.turnId && !playedTurns.has(turn.turnId) && !turn.isRevealing) {
-                        markTurn(playedTurns, 'played_capit_turns', turn.turnId);
+                        markSessionSet(playedTurns, 'played_capit_turns', turn.turnId);
                         trigger('start_turn', {
                             player: turn,
                             queueLength: data.state.capit.queueLength || 0,
@@ -198,9 +208,12 @@ window.createVercelSocket = function(namespace) {
                     if (resData.players && data.id && resData.players[data.id]) {
                         const updatedP = syncPouCache(resData.players[data.id], true);
                         pouSnapshots.set(updatedP.id, getPouHash(updatedP));
+                        // Tandai fingerprint agar polling berikutnya tidak menampilkan banner ganda
+                        const manualKey = `player_updated_manual_${updatedP.id}_${resData.rewardText || data.cmd || ''}`;
+                        markSessionSet(processedPouEvents, 'processed_pou_events', manualKey);
                         trigger('player_updated', {
                             player: updatedP,
-                            action: type === 'gift' ? 'gacha' : (data.cmd || 'join'),
+                            action: type === 'gift' ? (resData.rewardText ? 'gacha' : 'join') : (data.cmd || 'join'),
                             coins: data.coins || 0,
                             rewardText: resData.rewardText || ''
                         });
@@ -212,7 +225,6 @@ window.createVercelSocket = function(namespace) {
 };
 
 function startKeepAliveStream() {
-    // Jangan jalankan stream duplikat dari tab admin agar kontainer Vercel tidak bertabrakan
     if (window.location.pathname.includes('admin.html')) return;
 
     const savedUser = localStorage.getItem('tiktok_live_user') || '';
