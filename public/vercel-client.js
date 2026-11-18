@@ -6,6 +6,8 @@ window.createVercelSocket = function(namespace) {
 
     if (ns === 'capit') {
         localStorage.setItem('tiktok_active_game', 'capit');
+    } else if (ns === 'pou') {
+        localStorage.setItem('tiktok_active_game', 'pou');
     }
 
     const playedTurns = new Set(JSON.parse(sessionStorage.getItem('played_capit_turns') || '[]'));
@@ -26,11 +28,19 @@ window.createVercelSocket = function(namespace) {
     async function poll() {
         try {
             const savedUser = localStorage.getItem('tiktok_live_user') || '';
-            const savedGame = ns === 'capit' ? 'capit' : (localStorage.getItem('tiktok_active_game') || '');
+            const savedGame = (ns === 'pou' || ns === 'capit')
+                ? ns
+                : (localStorage.getItem('tiktok_active_game') || 'pou');
+
             const url = `/api/sync?ns=${ns}&since=${lastSeq}&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}&t=${Date.now()}`;
 
             const res = await fetch(url, { cache: 'no-store' });
             const data = await res.json();
+
+            // Simpan username TikTok jika server sudah terhubung
+            if (data.state?.tiktokStatus?.username && !savedUser) {
+                localStorage.setItem('tiktok_live_user', data.state.tiktokStatus.username);
+            }
 
             if (!initialized) {
                 initialized = true;
@@ -38,7 +48,7 @@ window.createVercelSocket = function(namespace) {
                 trigger('connect', {});
                 if (ns === 'portal') {
                     trigger('portal_state', {
-                        activeGame: savedGame || data.state.activeGame,
+                        activeGame: data.state.activeGame || savedGame,
                         tiktokStatus: data.state.tiktokStatus
                     });
                 } else if (ns === 'pou') {
@@ -56,6 +66,12 @@ window.createVercelSocket = function(namespace) {
                 } else {
                     lastSeq = data.seq;
                     data.events.forEach(ev => {
+                        if (ev.event === 'portal_state' && ev.payload?.activeGame) {
+                            localStorage.setItem('tiktok_active_game', ev.payload.activeGame);
+                        }
+                        if (ev.event === 'portal_state' && ev.payload?.tiktokStatus?.username) {
+                            localStorage.setItem('tiktok_live_user', ev.payload.tiktokStatus.username);
+                        }
                         const tid = ev.payload?.player?.turnId;
                         if (ev.event === 'start_turn' && tid) {
                             if (playedTurns.has(tid)) return;
@@ -66,6 +82,15 @@ window.createVercelSocket = function(namespace) {
                             markTurn(revealedTurns, 'revealed_capit_turns', tid);
                         }
                         trigger(ev.event, ev.payload);
+                    });
+                }
+
+                // Sinkronisasi pemain Pou langsung dari state jika ada event terlewat
+                if (ns === 'pou' && data.state?.players) {
+                    Object.values(data.state.players).forEach(p => {
+                        if (!p.isHidden) {
+                            trigger('player_updated', { player: p, action: 'sync', coins: 0, rewardText: '' });
+                        }
                     });
                 }
 
@@ -107,9 +132,9 @@ window.createVercelSocket = function(namespace) {
 
 function startKeepAliveStream() {
     const savedUser = localStorage.getItem('tiktok_live_user') || '';
-    const savedGame = localStorage.getItem('tiktok_active_game') || 'capit';
+    const savedGame = localStorage.getItem('tiktok_active_game') || 'pou';
     if (!savedUser) {
-        setTimeout(startKeepAliveStream, 2000);
+        setTimeout(startKeepAliveStream, 1500);
         return;
     }
     const es = new EventSource(`/api/stream?user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}`);
