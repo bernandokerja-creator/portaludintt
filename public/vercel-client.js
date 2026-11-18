@@ -3,6 +3,7 @@ window.createVercelSocket = function(namespace) {
     const handlers = {};
     let lastSeq = 0;
     let initialized = false;
+    let lastTurnKey = '';
 
     function trigger(event, payload) {
         if (handlers[event]) {
@@ -33,10 +34,33 @@ window.createVercelSocket = function(namespace) {
                 } else if (ns === 'capit') {
                     trigger('init_state', data.state.capit);
                     trigger('tiktok_status', data.state.tiktokStatus);
+                    if (data.state.capit?.currentTurn) {
+                        const t = data.state.capit.currentTurn;
+                        lastTurnKey = `${t.uniqueId}_${t.coins}`;
+                    }
                 }
             } else {
                 lastSeq = data.seq;
-                data.events.forEach(ev => trigger(ev.event, ev.payload));
+                data.events.forEach(ev => {
+                    if (ev.event === 'start_turn' && ev.payload?.player) {
+                        lastTurnKey = `${ev.payload.player.uniqueId}_${ev.payload.player.coins}`;
+                    }
+                    trigger(ev.event, ev.payload);
+                });
+
+                // PENGAMAN EXTRA: Jika event terlewat karena pindah kontainer Vercel, cek langsung state currentTurn!
+                if (ns === 'capit' && data.state?.capit?.currentTurn) {
+                    const turn = data.state.capit.currentTurn;
+                    const turnKey = `${turn.uniqueId}_${turn.coins}`;
+                    if (turnKey !== lastTurnKey && !turn.isRevealing) {
+                        lastTurnKey = turnKey;
+                        trigger('start_turn', {
+                            player: turn,
+                            queueLength: data.state.capit.queueLength || 0,
+                            timeoutSec: 20
+                        });
+                    }
+                }
             }
         } catch (err) {}
         setTimeout(poll, 800);
