@@ -126,7 +126,15 @@ if (fs.existsSync(POU_FILE)) {
 
 function getRandomNeedDuration() { return Math.floor(Math.random() * (180 - 150 + 1)) + 150; }
 function getBossMaxHp(floor) { return Math.floor(100 + Math.pow(floor, 1.62) * 14); }
-function savePlayerData() { fs.writeFileSync(POU_FILE, JSON.stringify(playersData, null, 2), 'utf8'); }
+
+// Aman untuk Vercel (Read-Only Filesystem) & Local/Koyeb/Render
+function savePlayerData() {
+    try {
+        fs.writeFileSync(POU_FILE, JSON.stringify(playersData, null, 2), 'utf8');
+    } catch (e) {
+        // Tetap simpan di memori RAM jika hosting tidak mengizinkan tulis file
+    }
+}
 
 Object.keys(playersData).forEach(id => {
     const p = playersData[id];
@@ -305,6 +313,45 @@ function handlePouGift(id, nickname, coins, giftName = "") {
     pouIO.emit('player_updated', { player, action: actionType, coins, rewardText });
 }
 
+function executePouCmd(data) {
+    if ((data.cmd === 'ee' || data.cmd === 'eek') && data.id) {
+        handlePouJoin(data.id, data.nickname || data.id);
+    } else if (data.cmd === 'shw' && playersData[data.id]) {
+        resetIdleTimer(data.id); savePlayerData();
+        pouIO.emit('user_show', { id: data.id, nickname: playersData[data.id].name, player: playersData[data.id] });
+    } else if (data.cmd === 'dgn' && playersData[data.id]) {
+        startAutoDungeon(data.id);
+    } else if (data.cmd === 'throne' && playersData[data.id]) {
+        resetIdleTimer(data.id); savePlayerData();
+        pouIO.emit('set_throne', { id: data.id, player: playersData[data.id] });
+    } else if (data.cmd === 'levelup1' && playersData[data.id]) {
+        resetIdleTimer(data.id);
+        playersData[data.id].level += 1;
+        playersData[data.id].maxHp += 35;
+        playersData[data.id].hp = playersData[data.id].maxHp;
+        savePlayerData();
+        pouIO.emit('player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
+    } else if (data.cmd === 'levelup10' && playersData[data.id]) {
+        resetIdleTimer(data.id);
+        playersData[data.id].level += 10;
+        playersData[data.id].maxHp += 350;
+        playersData[data.id].hp = playersData[data.id].maxHp;
+        savePlayerData();
+        pouIO.emit('player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
+    } else if (data.cmd === 'delete_player' && playersData[data.id]) {
+        clearTimeout(idleTimers[data.id]);
+        delete idleTimers[data.id];
+        delete playersData[data.id];
+        savePlayerData();
+        pouIO.emit('player_deleted', { id: data.id });
+    } else if (data.cmd === 'clear_all') {
+        Object.keys(idleTimers).forEach(k => clearTimeout(idleTimers[k]));
+        playersData = {};
+        savePlayerData();
+        pouIO.emit('all_players_cleared');
+    }
+}
+
 function startAutoDungeon(id) {
     const player = playersData[id];
     if (!player || player.inDungeon) return;
@@ -350,16 +397,7 @@ function startAutoDungeon(id) {
 pouIO.on('connection', (socket) => {
     socket.emit('init_game', { players: playersData });
     socket.on('test_gift', (data) => handlePouGift(data.id, data.nickname, data.coins, data.giftName));
-    socket.on('test_cmd', (data) => {
-        if ((data.cmd === 'ee' || data.cmd === 'eek') && data.id) handlePouJoin(data.id, data.nickname || data.id);
-        else if (data.cmd === 'shw' && playersData[data.id]) { resetIdleTimer(data.id); savePlayerData(); pouIO.emit('user_show', { id: data.id, nickname: playersData[data.id].name, player: playersData[data.id] }); }
-        else if (data.cmd === 'dgn' && playersData[data.id]) startAutoDungeon(data.id);
-        else if (data.cmd === 'throne' && playersData[data.id]) { resetIdleTimer(data.id); savePlayerData(); pouIO.emit('set_throne', { id: data.id, player: playersData[data.id] }); }
-        else if (data.cmd === 'levelup1' && playersData[data.id]) { resetIdleTimer(data.id); playersData[data.id].level += 1; playersData[data.id].maxHp += 35; playersData[data.id].hp = playersData[data.id].maxHp; savePlayerData(); pouIO.emit('player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' }); }
-        else if (data.cmd === 'levelup10' && playersData[data.id]) { resetIdleTimer(data.id); playersData[data.id].level += 10; playersData[data.id].maxHp += 350; playersData[data.id].hp = playersData[data.id].maxHp; savePlayerData(); pouIO.emit('player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' }); }
-        else if (data.cmd === 'delete_player' && playersData[data.id]) { clearTimeout(idleTimers[data.id]); delete idleTimers[data.id]; delete playersData[data.id]; savePlayerData(); pouIO.emit('player_deleted', { id: data.id }); }
-        else if (data.cmd === 'clear_all') { Object.keys(idleTimers).forEach(k => clearTimeout(idleTimers[k])); playersData = {}; savePlayerData(); pouIO.emit('all_players_cleared'); }
-    });
+    socket.on('test_cmd', (data) => executePouCmd(data));
 });
 
 // =========================================================================
@@ -372,7 +410,12 @@ let gameConfig = { activeTheme: 'candy', tiers: [] };
 if (fs.existsSync(CAPIT_FILE)) {
     try { gameConfig = JSON.parse(fs.readFileSync(CAPIT_FILE, 'utf8')); } catch (e) {}
 }
-function saveCapitConfig() { fs.writeFileSync(CAPIT_FILE, JSON.stringify(gameConfig, null, 2)); }
+
+function saveCapitConfig() {
+    try {
+        fs.writeFileSync(CAPIT_FILE, JSON.stringify(gameConfig, null, 2));
+    } catch (e) {}
+}
 
 function parseBoxChoice(text) {
     const stripped = String(text || '').trim().toLowerCase().replace(/^(#|no\.?|nomor|peti|kotak|pilih)\s*/i, '');
@@ -444,7 +487,7 @@ function handleCapitChat(chatUser, comment) {
     if (boxNum !== null) executeCapitBoxOpen(boxNum, false);
 }
 
-// API ROUTES UNTUK PORTAL & CAPIT
+// ================= API ROUTES UNTUK PORTAL, CAPIT & POU =================
 app.get('/api/config', (req, res) => res.json(gameConfig));
 app.post('/api/config', (req, res) => { gameConfig = req.body; saveCapitConfig(); capitIO.emit('config_updated', gameConfig); res.json({ success: true }); });
 app.post('/api/theme', (req, res) => { gameConfig.activeTheme = req.body.theme; saveCapitConfig(); capitIO.emit('theme_changed', req.body.theme); res.json({ success: true }); });
@@ -469,6 +512,21 @@ app.post('/api/skip-turn', (req, res) => {
     clearTimeout(turnTimer); currentTurn = null; capitIO.emit('turn_ended', { queueLength: queue.length }); processNextCapitTurn(); res.json({ success: true });
 });
 
+// HTTP API BACKUP UNTUK GAME POU (AGAR STABIL DI VERCEL)
+app.get('/api/pou/players', (req, res) => {
+    res.json({ players: playersData });
+});
+
+app.post('/api/pou/action', (req, res) => {
+    const { type } = req.body;
+    if (type === 'gift') {
+        handlePouGift(req.body.id, req.body.nickname, req.body.coins, req.body.giftName);
+    } else if (type === 'cmd') {
+        executePouCmd(req.body);
+    }
+    res.json({ success: true, players: playersData });
+});
+
 portalIO.on('connection', (socket) => socket.emit('portal_state', { activeGame, tiktokStatus }));
 capitIO.on('connection', (socket) => {
     socket.emit('init_state', { config: gameConfig, currentTurn, queueLength: queue.length });
@@ -483,3 +541,5 @@ initTikTokLibrary().then(() => {
         console.log(`==================================================`);
     });
 });
+
+module.exports = app;
