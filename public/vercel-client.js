@@ -61,3 +61,21 @@ window.createVercelSocket = function(namespace) {
         }
     };
 };
+
+function startKeepAliveStream() {
+    const savedUser = localStorage.getItem('tiktok_live_user') || '';
+    const savedGame = localStorage.getItem('tiktok_active_game') || '';
+    if (!savedUser) {
+        setTimeout(startKeepAliveStream, 2000);
+        return;
+    }
+    const es = new EventSource(`/api/stream?user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}`);
+    es.onerror = () => {
+        es.close();
+        setTimeout(startKeepAliveStream, 1000);
+    };
+}
+if (!window._vercelStreamStarted) {
+    window._vercelStreamStarted = true;
+    startKeepAliveStream();
+}

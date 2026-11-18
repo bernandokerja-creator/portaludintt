@@ -499,6 +499,33 @@ function handleCapitChat(chatUser, comment) {
     if (boxNum !== null) executeCapitBoxOpen(boxNum, false);
 }
 
+app.get('/api/stream', async (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const savedUser = normalizeId(req.query.user || '');
+    const savedGame = req.query.game || '';
+    if (savedGame === 'pou' || savedGame === 'capit') activeGame = savedGame;
+
+    if (savedUser && (!tiktokStatus.connected || tiktokStatus.username !== savedUser) && !isConnecting) {
+        await connectTikTok(savedUser);
+    }
+
+    // Kirim ping tiap 2 detik selama 55 detik agar CPU Vercel tidak dibekukan
+    const keepAlive = setInterval(() => {
+        res.write(`data: ${JSON.stringify({ ts: Date.now(), connected: tiktokStatus.connected })}\n\n`);
+    }, 2000);
+
+    setTimeout(() => {
+        clearInterval(keepAlive);
+        res.end();
+    }, 55000);
+
+    req.on('close', () => clearInterval(keepAlive));
+});
+
 // ================= ENDPOINT SYNC + AUTO-RECONNECT VERCEL =================
 app.get('/api/sync', async (req, res) => {
     const since = parseInt(req.query.since || '0', 10);
