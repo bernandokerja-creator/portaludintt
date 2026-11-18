@@ -250,20 +250,28 @@
         });
 
 async function connectTikTok() {
-    const username = document.getElementById('tiktok-username').value.trim();
+    const username = document.getElementById('tiktok-username').value.trim().replace(/^@/, '');
     if (!username) return alert('Isi username TikTok terlebih dahulu!');
-    const btn = event.target;
-    btn.innerText = '⏳ Menghubungkan...';
+    localStorage.setItem('tiktok_live_user', username);
+
     const res = await fetch('/api/connect-tiktok', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
     });
     const data = await res.json();
-    btn.innerText = '📡 Hubungkan Live';
     if (!data.success && data.status?.error) {
         alert('Gagal terhubung: ' + data.status.error);
     }
+}
+
+async function setActiveGame(game) {
+    localStorage.setItem('tiktok_active_game', game);
+    await fetch('/api/set-active-game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game })
+    });
 }
 
         async function setActiveGame(game) {

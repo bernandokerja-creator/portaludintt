@@ -1,4 +1,3 @@
-// Pengganti socket.io untuk Vercel Serverless (HTTP Polling Real-Time)
 window.createVercelSocket = function(namespace) {
     const ns = namespace.replace(/^\//, '');
     const handlers = {};
@@ -13,7 +12,11 @@ window.createVercelSocket = function(namespace) {
 
     async function poll() {
         try {
-            const res = await fetch(`/api/sync?ns=${ns}&since=${lastSeq}`);
+            const savedUser = localStorage.getItem('tiktok_live_user') || '';
+            const savedGame = localStorage.getItem('tiktok_active_game') || '';
+            const url = `/api/sync?ns=${ns}&since=${lastSeq}&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}`;
+
+            const res = await fetch(url);
             const data = await res.json();
 
             if (!initialized) {
@@ -22,7 +25,7 @@ window.createVercelSocket = function(namespace) {
                 trigger('connect', {});
                 if (ns === 'portal') {
                     trigger('portal_state', {
-                        activeGame: data.state.activeGame,
+                        activeGame: savedGame || data.state.activeGame,
                         tiktokStatus: data.state.tiktokStatus
                     });
                 } else if (ns === 'pou') {
@@ -35,10 +38,8 @@ window.createVercelSocket = function(namespace) {
                 lastSeq = data.seq;
                 data.events.forEach(ev => trigger(ev.event, ev.payload));
             }
-        } catch (err) {
-            // Abaikan error jaringan sesaat
-        }
-        setTimeout(poll, 900);
+        } catch (err) {}
+        setTimeout(poll, 800);
     }
 
     poll();

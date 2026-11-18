@@ -21,9 +21,9 @@ async function initTikTokLibrary() {
     }
 }
 
-// ================= EVENT BUS PENGGANTI SOCKET.IO (UNTUK VERCEL) =================
+// ================= EVENT BUS PENGGANTI SOCKET.IO =================
 let eventSeq = 0;
-let eventLog = []; // Menyimpan 100 event terakhir agar client bisa polling
+let eventLog = [];
 
 function emitEvent(namespace, event, payload) {
     eventSeq++;
@@ -34,6 +34,7 @@ function emitEvent(namespace, event, payload) {
 // ================= STATE PORTAL & TIKTOK LIVE =================
 let activeGame = 'pou';
 let tiktokConnection = null;
+let isConnecting = false;
 let tiktokStatus = { connected: false, username: '' };
 
 function broadcastPortalState() {
@@ -41,7 +42,6 @@ function broadcastPortalState() {
     emitEvent('capit', 'tiktok_status', tiktokStatus);
 }
 
-// ================= HELPER USER TIKTOK =================
 function normalizeId(id) {
     return String(id || '').replace(/^@/, '').trim().toLowerCase();
 }
@@ -60,18 +60,23 @@ function extractUserInfo(data) {
     return { userId: String(rawId).trim(), secUid, uniqueId, nickname, profilePictureUrl };
 }
 
-// ================= KONEKSI PUSAT TIKTOK LIVE =================
+// ================= KONEKSI TIKTOK LIVE (DENGAN AUTO-RECONNECT) =================
 async function connectTikTok(username) {
     const cleanUser = normalizeId(username);
     if (!cleanUser) return { connected: false, error: 'Username kosong' };
+    if (isConnecting) return tiktokStatus;
 
+    isConnecting = true;
     await initTikTokLibrary();
 
     if (tiktokConnection) {
         try { tiktokConnection.disconnect(); } catch (e) {}
     }
 
-    tiktokConnection = new TikTokLiveConnection(cleanUser, { processInitialData: false });
+    tiktokConnection = new TikTokLiveConnection(cleanUser, {
+        processInitialData: false,
+        enableExtendedGiftInfo: true
+    });
 
     try {
         const state = await tiktokConnection.connect();
@@ -80,20 +85,42 @@ async function connectTikTok(username) {
         broadcastPortalState();
     } catch (err) {
         console.error('[TIKTOK] Gagal terhubung:', err.message || err);
-        tiktokStatus = { connected: false, username: cleanUser, error: err.message || 'Gagal terhubung (Pastikan akun sedang LIVE)' };
+        tiktokStatus = { connected: false, username: cleanUser, error: err.message || 'Gagal terhubung' };
         broadcastPortalState();
+        isConnecting = false;
         return tiktokStatus;
     }
 
+    tiktokConnection.on('disconnected', () => {
+        tiktokStatus.connected = false;
+        broadcastPortalState();
+    });
+
+    // EVENT GIFT (MENDUKUNG SEMUA FORMAT TIKTOK-LIVE-CONNECTOR V2)
     tiktokConnection.on(WebcastEvent.GIFT, data => {
         const giftType = data.giftType ?? data.gift?.type ?? data.giftDetails?.giftType;
-        if (giftType === 1 && !data.repeatEnd) return;
+        // Untuk streakable gift (type 1), proses saat repeatEnd true ATAU langsung jika non-streak
+        if (giftType === 1 && data.repeatEnd === false) return;
 
-        const diamondCount = data.diamondCount ?? data.gift?.diamond_count ?? data.giftDetails?.diamondCount ?? 1;
-        const repeatCount = data.repeatCount || 1;
-        const totalCoins = diamondCount * repeatCount;
-        const giftName = data.giftName ?? data.gift?.name ?? data.giftDetails?.giftName ?? '';
+        const diamondCount = Number(
+            data.diamondCount ??
+            data.gift?.diamond_count ??
+            data.giftDetails?.diamondCount ??
+            data.extendedGiftInfo?.diamond_count ??
+            1
+        );
+        const repeatCount = Number(data.repeatCount || 1);
+        const totalCoins = Math.max(1, diamondCount * repeatCount);
+        const giftName = String(
+            data.giftName ??
+            data.gift?.name ??
+            data.giftDetails?.giftName ??
+            data.extendedGiftInfo?.name ??
+            ''
+        );
         const userInfo = extractUserInfo(data);
+
+        console.log(`[GIFT MASUK] @${userInfo.uniqueId} kirim ${giftName} (${totalCoins} koin) | Game aktif: ${activeGame}`);
 
         if (activeGame === 'pou') {
             handlePouGift(userInfo.uniqueId, userInfo.nickname, totalCoins, giftName);
@@ -102,6 +129,7 @@ async function connectTikTok(username) {
         }
     });
 
+    // EVENT CHAT
     tiktokConnection.on(WebcastEvent.CHAT, data => {
         const comment = String(data.comment ?? data.content ?? data.text ?? '').trim();
         const chatUser = extractUserInfo(data);
@@ -113,6 +141,7 @@ async function connectTikTok(username) {
         }
     });
 
+    isConnecting = false;
     return tiktokStatus;
 }
 
@@ -136,9 +165,7 @@ function getBossMaxHp(floor) { return Math.floor(100 + Math.pow(floor, 1.62) * 1
 function savePlayerData() {
     try {
         fs.writeFileSync(POU_FILE, JSON.stringify(playersData, null, 2), 'utf8');
-    } catch (e) {
-        // Vercel read-only filesystem: tetap aman di memori global container
-    }
+    } catch (e) {}
 }
 
 Object.keys(playersData).forEach(id => {
@@ -472,10 +499,23 @@ function handleCapitChat(chatUser, comment) {
     if (boxNum !== null) executeCapitBoxOpen(boxNum, false);
 }
 
-// ================= ENDPOINT POLLING REAL-TIME UNTUK SEMUA HALAMAN =================
-app.get('/api/sync', (req, res) => {
+// ================= ENDPOINT SYNC + AUTO-RECONNECT VERCEL =================
+app.get('/api/sync', async (req, res) => {
     const since = parseInt(req.query.since || '0', 10);
     const ns = req.query.ns || '';
+    const savedUser = normalizeId(req.query.user || '');
+    const savedGame = req.query.game || '';
+
+    // Pulihkan pilihan game aktif jika kontainer Vercel baru restart
+    if ((savedGame === 'pou' || savedGame === 'capit') && activeGame !== savedGame) {
+        activeGame = savedGame;
+    }
+
+    // Jika browser punya username TikTok yang sedang live tapi kontainer Vercel baru restart, langsung sambung ulang!
+    if (savedUser && (!tiktokStatus.connected || tiktokStatus.username !== savedUser) && !isConnecting) {
+        await connectTikTok(savedUser);
+    }
+
     const events = eventLog.filter(e => e.seq > since && (!ns || e.namespace === ns));
     res.json({
         seq: eventSeq,
@@ -489,7 +529,7 @@ app.get('/api/sync', (req, res) => {
     });
 });
 
-// ================= API ROUTES UNTUK PORTAL, CAPIT & POU =================
+// ================= API ROUTES =================
 app.get('/api/config', (req, res) => res.json(gameConfig));
 app.post('/api/config', (req, res) => { gameConfig = req.body; saveCapitConfig(); emitEvent('capit', 'config_updated', gameConfig); res.json({ success: true }); });
 app.post('/api/theme', (req, res) => { gameConfig.activeTheme = req.body.theme; saveCapitConfig(); emitEvent('capit', 'theme_changed', req.body.theme); res.json({ success: true }); });
@@ -536,13 +576,10 @@ app.post('/api/pou/action', (req, res) => {
     res.json({ success: true, players: playersData });
 });
 
-// Jalankan server hanya jika dijalankan di localhost (bukan di Vercel)
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
     initTikTokLibrary().then(() => {
-        app.listen(PORT, () => {
-            console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
-        });
+        app.listen(PORT, () => console.log(`🚀 Server lokal: http://localhost:${PORT}`));
     });
 }
 
