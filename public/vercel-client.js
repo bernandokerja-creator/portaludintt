@@ -3,7 +3,18 @@ window.createVercelSocket = function(namespace) {
     const handlers = {};
     let lastSeq = 0;
     let initialized = false;
-    let lastTurnKey = '';
+
+    // Jika membuka halaman Capit, otomatis kunci localStorage ke 'capit'
+    if (ns === 'capit') {
+        localStorage.setItem('tiktok_active_game', 'capit');
+    }
+
+    const playedTurns = new Set(JSON.parse(sessionStorage.getItem('played_capit_turns') || '[]'));
+    function markTurnPlayed(id) {
+        if (!id) return;
+        playedTurns.add(id);
+        sessionStorage.setItem('played_capit_turns', JSON.stringify(Array.from(playedTurns).slice(-50)));
+    }
 
     function trigger(event, payload) {
         if (handlers[event]) {
@@ -14,7 +25,7 @@ window.createVercelSocket = function(namespace) {
     async function poll() {
         try {
             const savedUser = localStorage.getItem('tiktok_live_user') || '';
-            const savedGame = localStorage.getItem('tiktok_active_game') || '';
+            const savedGame = ns === 'capit' ? 'capit' : (localStorage.getItem('tiktok_active_game') || '');
             const url = `/api/sync?ns=${ns}&since=${lastSeq}&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}`;
 
             const res = await fetch(url);
@@ -34,26 +45,28 @@ window.createVercelSocket = function(namespace) {
                 } else if (ns === 'capit') {
                     trigger('init_state', data.state.capit);
                     trigger('tiktok_status', data.state.tiktokStatus);
-                    if (data.state.capit?.currentTurn) {
-                        const t = data.state.capit.currentTurn;
-                        lastTurnKey = `${t.uniqueId}_${t.coins}`;
+                    if (data.state.capit?.currentTurn?.turnId) {
+                        markTurnPlayed(data.state.capit.currentTurn.turnId);
                     }
                 }
             } else {
-                lastSeq = data.seq;
-                data.events.forEach(ev => {
-                    if (ev.event === 'start_turn' && ev.payload?.player) {
-                        lastTurnKey = `${ev.payload.player.uniqueId}_${ev.payload.player.coins}`;
-                    }
-                    trigger(ev.event, ev.payload);
-                });
+                if (data.seq < lastSeq) {
+                    lastSeq = data.seq;
+                } else {
+                    lastSeq = data.seq;
+                    data.events.forEach(ev => {
+                        if (ev.event === 'start_turn' && ev.payload?.player?.turnId) {
+                            if (playedTurns.has(ev.payload.player.turnId)) return;
+                            markTurnPlayed(ev.payload.player.turnId);
+                        }
+                        trigger(ev.event, ev.payload);
+                    });
+                }
 
-                // PENGAMAN EXTRA: Jika event terlewat karena pindah kontainer Vercel, cek langsung state currentTurn!
                 if (ns === 'capit' && data.state?.capit?.currentTurn) {
                     const turn = data.state.capit.currentTurn;
-                    const turnKey = `${turn.uniqueId}_${turn.coins}`;
-                    if (turnKey !== lastTurnKey && !turn.isRevealing) {
-                        lastTurnKey = turnKey;
+                    if (turn.turnId && !playedTurns.has(turn.turnId) && !turn.isRevealing) {
+                        markTurnPlayed(turn.turnId);
                         trigger('start_turn', {
                             player: turn,
                             queueLength: data.state.capit.queueLength || 0,
@@ -63,7 +76,7 @@ window.createVercelSocket = function(namespace) {
                 }
             }
         } catch (err) {}
-        setTimeout(poll, 800);
+        setTimeout(poll, 1000);
     }
 
     poll();
@@ -88,7 +101,7 @@ window.createVercelSocket = function(namespace) {
 
 function startKeepAliveStream() {
     const savedUser = localStorage.getItem('tiktok_live_user') || '';
-    const savedGame = localStorage.getItem('tiktok_active_game') || '';
+    const savedGame = localStorage.getItem('tiktok_active_game') || 'capit';
     if (!savedUser) {
         setTimeout(startKeepAliveStream, 2000);
         return;
@@ -96,7 +109,7 @@ function startKeepAliveStream() {
     const es = new EventSource(`/api/stream?user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}`);
     es.onerror = () => {
         es.close();
-        setTimeout(startKeepAliveStream, 1000);
+        setTimeout(startKeepAliveStream, 1500);
     };
 }
 if (!window._vercelStreamStarted) {

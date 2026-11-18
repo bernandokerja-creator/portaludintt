@@ -60,7 +60,7 @@ function extractUserInfo(data) {
     return { userId: String(rawId).trim(), secUid, uniqueId, nickname, profilePictureUrl };
 }
 
-// ================= KONEKSI TIKTOK LIVE (DENGAN AUTO-RECONNECT) =================
+// ================= KONEKSI TIKTOK LIVE =================
 async function connectTikTok(username) {
     const cleanUser = normalizeId(username);
     if (!cleanUser) return { connected: false, error: 'Username kosong' };
@@ -73,10 +73,10 @@ async function connectTikTok(username) {
         try { tiktokConnection.disconnect(); } catch (e) {}
     }
 
-tiktokConnection = new TikTokLiveConnection(cleanUser, {
-    processInitialData: false,
-    signApiKey: process.env.SIGN_API_KEY
-});
+    tiktokConnection = new TikTokLiveConnection(cleanUser, {
+        processInitialData: false,
+        signApiKey: process.env.SIGN_API_KEY
+    });
 
     try {
         const state = await tiktokConnection.connect();
@@ -99,7 +99,6 @@ tiktokConnection = new TikTokLiveConnection(cleanUser, {
     // EVENT GIFT (MENDUKUNG SEMUA FORMAT TIKTOK-LIVE-CONNECTOR V2)
     tiktokConnection.on(WebcastEvent.GIFT, data => {
         const giftType = data.giftType ?? data.gift?.type ?? data.giftDetails?.giftType;
-        // Untuk streakable gift (type 1), proses saat repeatEnd true ATAU langsung jika non-streak
         if (giftType === 1 && data.repeatEnd === false) return;
 
         const diamondCount = Number(
@@ -438,6 +437,8 @@ function parseBoxChoice(text) {
 let queue = [];
 let currentTurn = null;
 let turnTimer = null;
+let lastEnqueuedKey = '';
+let lastEnqueuedTime = 0;
 
 function determineTier(coins) {
     const sorted = [...gameConfig.tiers].sort((a, b) => b.minCoins - a.minCoins);
@@ -446,12 +447,20 @@ function determineTier(coins) {
 }
 
 function enqueueCapitPlayer(user) {
+    const dedupKey = `${normalizeId(user.uniqueId)}_${user.coins}`;
+    if (dedupKey === lastEnqueuedKey && Date.now() - lastEnqueuedTime < 3000) {
+        return;
+    }
+    lastEnqueuedKey = dedupKey;
+    lastEnqueuedTime = Date.now();
+
     const tierObj = determineTier(user.coins);
     let pool = [...tierObj.challenges];
     while (pool.length < 10) pool = pool.concat(tierObj.challenges);
     const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 10);
 
     queue.push({
+        turnId: 'turn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
         userId: String(user.userId || ''),
         secUid: String(user.secUid || ''),
         uniqueId: normalizeId(user.uniqueId),
@@ -499,6 +508,7 @@ function handleCapitChat(chatUser, comment) {
     if (boxNum !== null) executeCapitBoxOpen(boxNum, false);
 }
 
+// ================= SSE STREAM KEEP-ALIVE VERCEL =================
 app.get('/api/stream', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -507,13 +517,14 @@ app.get('/api/stream', async (req, res) => {
 
     const savedUser = normalizeId(req.query.user || '');
     const savedGame = req.query.game || '';
-    if (savedGame === 'pou' || savedGame === 'capit') activeGame = savedGame;
+    if (savedGame === 'pou' || savedGame === 'capit') {
+        activeGame = savedGame;
+    }
 
     if (savedUser && (!tiktokStatus.connected || tiktokStatus.username !== savedUser) && !isConnecting) {
         await connectTikTok(savedUser);
     }
 
-    // Kirim ping tiap 2 detik selama 55 detik agar CPU Vercel tidak dibekukan
     const keepAlive = setInterval(() => {
         res.write(`data: ${JSON.stringify({ ts: Date.now(), connected: tiktokStatus.connected })}\n\n`);
     }, 2000);
@@ -526,22 +537,14 @@ app.get('/api/stream', async (req, res) => {
     req.on('close', () => clearInterval(keepAlive));
 });
 
-// ================= ENDPOINT SYNC + AUTO-RECONNECT VERCEL =================
-app.get('/api/sync', async (req, res) => {
+// ================= ENDPOINT SYNC =================
+app.get('/api/sync', (req, res) => {
     const since = parseInt(req.query.since || '0', 10);
     const ns = req.query.ns || '';
-    const savedUser = normalizeId(req.query.user || '');
     const savedGame = req.query.game || '';
 
-    // Pulihkan pilihan game aktif jika kontainer Vercel baru restart
-    if ((savedGame === 'pou' || savedGame === 'capit') && activeGame !== savedGame) {
-        activeGame = savedGame;
-    }
-
-    // Jika browser punya username TikTok yang sedang live tapi kontainer Vercel baru restart, langsung sambung ulang!
-    if (savedUser && (!tiktokStatus.connected || tiktokStatus.username !== savedUser) && !isConnecting) {
-        await connectTikTok(savedUser);
-    }
+    if (ns === 'capit') activeGame = 'capit';
+    else if (savedGame === 'pou' || savedGame === 'capit') activeGame = savedGame;
 
     const events = eventLog.filter(e => e.seq > since && (!ns || e.namespace === ns));
     res.json({
