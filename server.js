@@ -35,7 +35,37 @@ function emitEvent(namespace, event, payload) {
 let activeGame = 'pou';
 let tiktokConnection = null;
 let isConnecting = false;
+let lastConnectAttempt = 0;
 let tiktokStatus = { connected: false, username: '' };
+
+// Simpan msgId & signature gift yang sudah diproses agar 100% anti-spam / anti-replay
+const processedMsgIds = new Set();
+const recentGiftSignatures = new Map();
+
+function isDuplicateOrStaleEvent(data, prefix = 'evt') {
+    const rawMsgId = data.msgId || data.common?.msgId || data.messageId || '';
+    const msgId = rawMsgId ? `${prefix}_${String(rawMsgId)}` : '';
+
+    if (msgId) {
+        if (processedMsgIds.has(msgId)) return true;
+        processedMsgIds.add(msgId);
+        if (processedMsgIds.size > 500) {
+            const first = processedMsgIds.values().next().value;
+            processedMsgIds.delete(first);
+        }
+    }
+
+    // Tolak paket replay lama dari TikTok (jika createTime lebih dari 35 detik lalu)
+    const createTime = Number(data.createTime || data.common?.createTime || 0);
+    if (createTime > 0) {
+        const msgMs = createTime < 1e12 ? createTime * 1000 : createTime;
+        if (Date.now() - msgMs > 35000) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 function broadcastPortalState() {
     emitEvent('portal', 'portal_state', { activeGame, tiktokStatus });
@@ -64,22 +94,34 @@ function extractUserInfo(data) {
 async function connectTikTok(username) {
     const cleanUser = normalizeId(username);
     if (!cleanUser) return { connected: false, error: 'Username kosong' };
+
+    // Cegah koneksi berulang dalam jeda kurang dari 15 detik
     if (isConnecting) return tiktokStatus;
+    if (tiktokStatus.connected && tiktokStatus.username === cleanUser) return tiktokStatus;
+    if (Date.now() - lastConnectAttempt < 15000 && tiktokStatus.username === cleanUser) {
+        return tiktokStatus;
+    }
 
     isConnecting = true;
+    lastConnectAttempt = Date.now();
     await initTikTokLibrary();
 
     if (tiktokConnection) {
-        try { tiktokConnection.disconnect(); } catch (e) {}
+        try {
+            tiktokConnection.removeAllListeners();
+            tiktokConnection.disconnect();
+        } catch (e) {}
+        tiktokConnection = null;
     }
 
-    tiktokConnection = new TikTokLiveConnection(cleanUser, {
+    const conn = new TikTokLiveConnection(cleanUser, {
         processInitialData: false,
         signApiKey: process.env.SIGN_API_KEY
     });
+    tiktokConnection = conn;
 
     try {
-        const state = await tiktokConnection.connect();
+        const state = await conn.connect();
         console.log(`[TIKTOK] Terhubung ke @${cleanUser} (Room: ${state.roomId})`);
         tiktokStatus = { connected: true, username: cleanUser };
         broadcastPortalState();
@@ -91,17 +133,22 @@ async function connectTikTok(username) {
         return tiktokStatus;
     }
 
-    tiktokConnection.on('disconnected', () => {
-        tiktokStatus.connected = false;
-        broadcastPortalState();
+    conn.on('disconnected', () => {
+        if (tiktokConnection === conn) {
+            tiktokStatus.connected = false;
+            broadcastPortalState();
+        }
     });
 
-    // EVENT GIFT (MENDUKUNG SEMUA FORMAT TIKTOK-LIVE-CONNECTOR V2)
-    tiktokConnection.on(WebcastEvent.GIFT, data => {
+    // EVENT GIFT (ANTI-SPAM & ANTI-REPLAY)
+    conn.on(WebcastEvent.GIFT, data => {
+        if (tiktokConnection !== conn) return;
+
         const giftType = data.giftType ?? data.gift?.type ?? data.giftDetails?.giftType;
         if (giftType === 1 && data.repeatEnd === false) return;
 
-        // Ambil nilai koin satuan dari semua kemungkinan properti TikTok
+        if (isDuplicateOrStaleEvent(data, 'gift')) return;
+
         const unitCoins = Number(
             data.diamondCount ||
             data.giftDetails?.diamondCount ||
@@ -123,7 +170,13 @@ async function connectTikTok(username) {
         );
         const userInfo = extractUserInfo(data);
 
-        console.log(`[GIFT MASUK] @${userInfo.uniqueId} kirim ${giftName} (${unitCoins} x ${repeatCount} = ${totalCoins} koin) | Game: ${activeGame}`);
+        // Filter tambahan: cegah gift identik dari user yang sama dalam 5 detik
+        const sigKey = `${userInfo.uniqueId}_${giftName}_${totalCoins}`;
+        const lastSigTime = recentGiftSignatures.get(sigKey) || 0;
+        if (Date.now() - lastSigTime < 5000) return;
+        recentGiftSignatures.set(sigKey, Date.now());
+
+        console.log(`[GIFT VALID] @${userInfo.uniqueId} kirim ${giftName} (${totalCoins} koin) | Game: ${activeGame}`);
 
         if (activeGame === 'pou') {
             handlePouGift(userInfo.uniqueId, userInfo.nickname, totalCoins, giftName);
@@ -133,7 +186,10 @@ async function connectTikTok(username) {
     });
 
     // EVENT CHAT
-    tiktokConnection.on(WebcastEvent.CHAT, data => {
+    conn.on(WebcastEvent.CHAT, data => {
+        if (tiktokConnection !== conn) return;
+        if (isDuplicateOrStaleEvent(data, 'chat')) return;
+
         const comment = String(data.comment ?? data.content ?? data.text ?? '').trim();
         const chatUser = extractUserInfo(data);
 
@@ -275,13 +331,21 @@ function handlePouJoin(id, nickname) {
 
 function handlePouChat(id, nickname, rawComment) {
     const comment = rawComment.toLowerCase().trim();
-    if (comment === 'ee' || comment === 'eek') return handlePouJoin(id, nickname);
-    if ((comment === 'shw' || comment === 'show') && playersData[id]) {
-        resetIdleTimer(id); savePlayerData();
+    console.log(`[POU CHAT] @${id}: "${comment}"`);
+
+    if (comment === 'ee' || comment === 'eek') {
+        return handlePouJoin(id, nickname);
+    }
+    if (comment === 'shw' || comment === 'show') {
+        if (!playersData[id]) handlePouJoin(id, nickname);
+        resetIdleTimer(id);
+        savePlayerData();
         emitEvent('pou', 'user_show', { id, nickname, player: playersData[id] });
     }
-    if (comment === 'dgn' && playersData[id]) {
-        resetIdleTimer(id); startAutoDungeon(id);
+    if (comment === 'dgn' || comment === 'dungeon') {
+        if (!playersData[id]) handlePouJoin(id, nickname);
+        resetIdleTimer(id);
+        startAutoDungeon(id);
     }
     if (comment === 'costume' || comment === 'baju') {
         emitEvent('pou', 'show_costume_catalog', {});
@@ -335,10 +399,10 @@ function handlePouGift(id, nickname, coins, giftName = "") {
 function executePouCmd(data) {
     if ((data.cmd === 'ee' || data.cmd === 'eek') && data.id) {
         handlePouJoin(data.id, data.nickname || data.id);
-    } else if (data.cmd === 'shw' && playersData[data.id]) {
+    } else if ((data.cmd === 'shw' || data.cmd === 'show') && playersData[data.id]) {
         resetIdleTimer(data.id); savePlayerData();
         emitEvent('pou', 'user_show', { id: data.id, nickname: playersData[data.id].name, player: playersData[data.id] });
-    } else if (data.cmd === 'dgn' && playersData[data.id]) {
+    } else if ((data.cmd === 'dgn' || data.cmd === 'dungeon') && playersData[data.id]) {
         startAutoDungeon(data.id);
     } else if (data.cmd === 'throne' && playersData[data.id]) {
         resetIdleTimer(data.id); savePlayerData();
@@ -417,7 +481,7 @@ function startAutoDungeon(id) {
 // BAGIAN B: LOGIKA GAME GACHA CAPIT
 // =========================================================================
 const CAPIT_FILE = path.join(__dirname, 'challenges.json');
-const PICK_TIMEOUT_MS = 20000;
+const PICK_TIMEOUT_MS = 35000;
 let gameConfig = { activeTheme: 'candy', tiers: [] };
 
 try {
@@ -441,8 +505,6 @@ function parseBoxChoice(text) {
 let queue = [];
 let currentTurn = null;
 let turnTimer = null;
-let lastEnqueuedKey = '';
-let lastEnqueuedTime = 0;
 
 function determineTier(coins) {
     const sorted = [...gameConfig.tiers].sort((a, b) => b.minCoins - a.minCoins);
@@ -451,13 +513,6 @@ function determineTier(coins) {
 }
 
 function enqueueCapitPlayer(user) {
-    const dedupKey = `${normalizeId(user.uniqueId)}_${user.coins}`;
-    if (dedupKey === lastEnqueuedKey && Date.now() - lastEnqueuedTime < 3000) {
-        return;
-    }
-    lastEnqueuedKey = dedupKey;
-    lastEnqueuedTime = Date.now();
-
     const tierObj = determineTier(user.coins);
     let pool = [...tierObj.challenges];
     while (pool.length < 10) pool = pool.concat(tierObj.challenges);
@@ -547,8 +602,11 @@ app.get('/api/sync', (req, res) => {
     const ns = req.query.ns || '';
     const savedGame = req.query.game || '';
 
-    if (ns === 'capit') activeGame = 'capit';
-    else if (savedGame === 'pou' || savedGame === 'capit') activeGame = savedGame;
+    if (ns === 'capit' || ns === 'pou') {
+        activeGame = ns;
+    } else if (savedGame === 'pou' || savedGame === 'capit') {
+        activeGame = savedGame;
+    }
 
     const events = eventLog.filter(e => e.seq > since && (!ns || e.namespace === ns));
     res.json({
