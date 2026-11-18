@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal Game TikTok Live</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="/vercel-client.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
@@ -219,7 +219,7 @@
     </div>
 
     <script>
-        const portalSocket = io('/portal');
+        const portalSocket = createVercelSocket('/portal');
 
         portalSocket.on('portal_state', ({ activeGame, tiktokStatus }) => {
             // Update tampilan kartu aktif
@@ -249,15 +249,22 @@
             }
         });
 
-        async function connectTikTok() {
-            const username = document.getElementById('tiktok-username').value.trim();
-            if (!username) return alert('Isi username TikTok terlebih dahulu!');
-            await fetch('/api/connect-tiktok', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username })
-            });
-        }
+async function connectTikTok() {
+    const username = document.getElementById('tiktok-username').value.trim();
+    if (!username) return alert('Isi username TikTok terlebih dahulu!');
+    const btn = event.target;
+    btn.innerText = '⏳ Menghubungkan...';
+    const res = await fetch('/api/connect-tiktok', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+    });
+    const data = await res.json();
+    btn.innerText = '📡 Hubungkan Live';
+    if (!data.success && data.status?.error) {
+        alert('Gagal terhubung: ' + data.status.error);
+    }
+}
 
         async function setActiveGame(game) {
             await fetch('/api/set-active-game', {

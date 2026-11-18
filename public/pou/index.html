@@ -100,10 +100,10 @@
     </div>
 </div>
 
-<script src="/socket.io/socket.io.js"></script>
+<script src="/vercel-client.js"></script>
 <script src="pou-renderer.js"></script>
 <script>
-    const socket = io('/pou');
+    const socket = createVercelSocket('/pou');
     const board = document.getElementById('game-board');
     const players = {};
     const allSavedPlayers = {};

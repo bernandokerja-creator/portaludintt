@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Gacha Kotak TikTok</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="/vercel-client.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -360,7 +360,7 @@
 </div>
 
 <script>
-    const socket = io('/capit');
+    const socket = createVercelSocket('/capit');
     let configData = null;
     let activeTierIdx = 0;
 

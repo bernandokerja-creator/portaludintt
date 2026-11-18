@@ -1,13 +1,8 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -26,19 +21,24 @@ async function initTikTokLibrary() {
     }
 }
 
-// ================= NAMESPACE TERPISAH =================
-const portalIO = io.of('/portal');
-const pouIO = io.of('/pou');
-const capitIO = io.of('/capit');
+// ================= EVENT BUS PENGGANTI SOCKET.IO (UNTUK VERCEL) =================
+let eventSeq = 0;
+let eventLog = []; // Menyimpan 100 event terakhir agar client bisa polling
+
+function emitEvent(namespace, event, payload) {
+    eventSeq++;
+    eventLog.push({ seq: eventSeq, namespace, event, payload, ts: Date.now() });
+    if (eventLog.length > 100) eventLog.shift();
+}
 
 // ================= STATE PORTAL & TIKTOK LIVE =================
-let activeGame = 'pou'; // Pilihan: 'pou' atau 'capit'
+let activeGame = 'pou';
 let tiktokConnection = null;
 let tiktokStatus = { connected: false, username: '' };
 
 function broadcastPortalState() {
-    portalIO.emit('portal_state', { activeGame, tiktokStatus });
-    capitIO.emit('tiktok_status', tiktokStatus);
+    emitEvent('portal', 'portal_state', { activeGame, tiktokStatus });
+    emitEvent('capit', 'tiktok_status', tiktokStatus);
 }
 
 // ================= HELPER USER TIKTOK =================
@@ -63,7 +63,7 @@ function extractUserInfo(data) {
 // ================= KONEKSI PUSAT TIKTOK LIVE =================
 async function connectTikTok(username) {
     const cleanUser = normalizeId(username);
-    if (!cleanUser) return;
+    if (!cleanUser) return { connected: false, error: 'Username kosong' };
 
     await initTikTokLibrary();
 
@@ -73,17 +73,18 @@ async function connectTikTok(username) {
 
     tiktokConnection = new TikTokLiveConnection(cleanUser, { processInitialData: false });
 
-    tiktokConnection.connect().then(state => {
+    try {
+        const state = await tiktokConnection.connect();
         console.log(`[TIKTOK] Terhubung ke @${cleanUser} (Room: ${state.roomId})`);
         tiktokStatus = { connected: true, username: cleanUser };
         broadcastPortalState();
-    }).catch(err => {
+    } catch (err) {
         console.error('[TIKTOK] Gagal terhubung:', err.message || err);
-        tiktokStatus = { connected: false, username: cleanUser, error: err.message || 'Gagal terhubung' };
+        tiktokStatus = { connected: false, username: cleanUser, error: err.message || 'Gagal terhubung (Pastikan akun sedang LIVE)' };
         broadcastPortalState();
-    });
+        return tiktokStatus;
+    }
 
-    // EVENT GIFT -> DIARAHKAN KE GAME YANG SEDANG AKTIF
     tiktokConnection.on(WebcastEvent.GIFT, data => {
         const giftType = data.giftType ?? data.gift?.type ?? data.giftDetails?.giftType;
         if (giftType === 1 && !data.repeatEnd) return;
@@ -101,7 +102,6 @@ async function connectTikTok(username) {
         }
     });
 
-    // EVENT CHAT -> DIARAHKAN KE GAME YANG SEDANG AKTIF
     tiktokConnection.on(WebcastEvent.CHAT, data => {
         const comment = String(data.comment ?? data.content ?? data.text ?? '').trim();
         const chatUser = extractUserInfo(data);
@@ -112,6 +112,8 @@ async function connectTikTok(username) {
             handleCapitChat(chatUser, comment);
         }
     });
+
+    return tiktokStatus;
 }
 
 // =========================================================================
@@ -120,19 +122,22 @@ async function connectTikTok(username) {
 const POU_FILE = path.join(__dirname, 'players.json');
 let playersData = {};
 
-if (fs.existsSync(POU_FILE)) {
-    try { playersData = JSON.parse(fs.readFileSync(POU_FILE, 'utf8')); } catch (e) { playersData = {}; }
+try {
+    if (fs.existsSync(POU_FILE)) {
+        playersData = JSON.parse(fs.readFileSync(POU_FILE, 'utf8'));
+    }
+} catch (e) {
+    playersData = {};
 }
 
 function getRandomNeedDuration() { return Math.floor(Math.random() * (180 - 150 + 1)) + 150; }
 function getBossMaxHp(floor) { return Math.floor(100 + Math.pow(floor, 1.62) * 14); }
 
-// Aman untuk Vercel (Read-Only Filesystem) & Local/Koyeb/Render
 function savePlayerData() {
     try {
         fs.writeFileSync(POU_FILE, JSON.stringify(playersData, null, 2), 'utf8');
     } catch (e) {
-        // Tetap simpan di memori RAM jika hosting tidak mengizinkan tulis file
+        // Vercel read-only filesystem: tetap aman di memori global container
     }
 }
 
@@ -159,26 +164,10 @@ function resetIdleTimer(id) {
             if (playersData[id].inDungeon) { resetIdleTimer(id); return; }
             playersData[id].isHidden = true;
             savePlayerData();
-            pouIO.emit('pou_hidden', { id });
+            emitEvent('pou', 'pou_hidden', { id });
         }
     }, IDLE_TIMEOUT_MS);
 }
-
-setInterval(() => {
-    let updatedList = [];
-    Object.keys(playersData).forEach(id => {
-        const p = playersData[id];
-        if (p.isHidden) return;
-        const prevH = Math.round(p.hunger), prevT = Math.round(p.thirst), prevC = Math.round(p.clean);
-        p.hunger = Math.max(0, p.hunger - (100 / (p.hungerDuration || 165)) * 2);
-        p.thirst = Math.max(0, p.thirst - (100 / (p.thirstDuration || 165)) * 2);
-        p.clean  = Math.max(0, p.clean  - (100 / (p.cleanDuration  || 165)) * 2);
-        if (Math.round(p.hunger) !== prevH || Math.round(p.thirst) !== prevT || Math.round(p.clean) !== prevC) {
-            updatedList.push({ id: p.id, hunger: Math.round(p.hunger), thirst: Math.round(p.thirst), clean: Math.round(p.clean) });
-        }
-    });
-    if (updatedList.length > 0) pouIO.emit('needs_tick', updatedList);
-}, 2000);
 
 const weaponData = {
     sandal: { name: "Sandal Swallow 🩴 (1.5x)", mult: 1.5 },
@@ -245,12 +234,12 @@ function handlePouJoin(id, nickname) {
         };
         resetIdleTimer(id);
         savePlayerData();
-        pouIO.emit('player_updated', { player: playersData[id], action: 'join', coins: 0, rewardText: '' });
+        emitEvent('pou', 'player_updated', { player: playersData[id], action: 'join', coins: 0, rewardText: '' });
     } else {
         playersData[id].name = nickname;
         resetIdleTimer(id);
         savePlayerData();
-        pouIO.emit('user_show', { id, nickname, player: playersData[id] });
+        emitEvent('pou', 'user_show', { id, nickname, player: playersData[id] });
     }
 }
 
@@ -259,13 +248,13 @@ function handlePouChat(id, nickname, rawComment) {
     if (comment === 'ee' || comment === 'eek') return handlePouJoin(id, nickname);
     if ((comment === 'shw' || comment === 'show') && playersData[id]) {
         resetIdleTimer(id); savePlayerData();
-        pouIO.emit('user_show', { id, nickname, player: playersData[id] });
+        emitEvent('pou', 'user_show', { id, nickname, player: playersData[id] });
     }
     if (comment === 'dgn' && playersData[id]) {
         resetIdleTimer(id); startAutoDungeon(id);
     }
     if (comment === 'costume' || comment === 'baju') {
-        pouIO.emit('show_costume_catalog');
+        emitEvent('pou', 'show_costume_catalog', {});
     }
 }
 
@@ -310,7 +299,7 @@ function handlePouGift(id, nickname, coins, giftName = "") {
     }
 
     savePlayerData();
-    pouIO.emit('player_updated', { player, action: actionType, coins, rewardText });
+    emitEvent('pou', 'player_updated', { player, action: actionType, coins, rewardText });
 }
 
 function executePouCmd(data) {
@@ -318,37 +307,37 @@ function executePouCmd(data) {
         handlePouJoin(data.id, data.nickname || data.id);
     } else if (data.cmd === 'shw' && playersData[data.id]) {
         resetIdleTimer(data.id); savePlayerData();
-        pouIO.emit('user_show', { id: data.id, nickname: playersData[data.id].name, player: playersData[data.id] });
+        emitEvent('pou', 'user_show', { id: data.id, nickname: playersData[data.id].name, player: playersData[data.id] });
     } else if (data.cmd === 'dgn' && playersData[data.id]) {
         startAutoDungeon(data.id);
     } else if (data.cmd === 'throne' && playersData[data.id]) {
         resetIdleTimer(data.id); savePlayerData();
-        pouIO.emit('set_throne', { id: data.id, player: playersData[data.id] });
+        emitEvent('pou', 'set_throne', { id: data.id, player: playersData[data.id] });
     } else if (data.cmd === 'levelup1' && playersData[data.id]) {
         resetIdleTimer(data.id);
         playersData[data.id].level += 1;
         playersData[data.id].maxHp += 35;
         playersData[data.id].hp = playersData[data.id].maxHp;
         savePlayerData();
-        pouIO.emit('player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
+        emitEvent('pou', 'player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
     } else if (data.cmd === 'levelup10' && playersData[data.id]) {
         resetIdleTimer(data.id);
         playersData[data.id].level += 10;
         playersData[data.id].maxHp += 350;
         playersData[data.id].hp = playersData[data.id].maxHp;
         savePlayerData();
-        pouIO.emit('player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
+        emitEvent('pou', 'player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
     } else if (data.cmd === 'delete_player' && playersData[data.id]) {
         clearTimeout(idleTimers[data.id]);
         delete idleTimers[data.id];
         delete playersData[data.id];
         savePlayerData();
-        pouIO.emit('player_deleted', { id: data.id });
+        emitEvent('pou', 'player_deleted', { id: data.id });
     } else if (data.cmd === 'clear_all') {
         Object.keys(idleTimers).forEach(k => clearTimeout(idleTimers[k]));
         playersData = {};
         savePlayerData();
-        pouIO.emit('all_players_cleared');
+        emitEvent('pou', 'all_players_cleared', {});
     }
 }
 
@@ -358,7 +347,7 @@ function startAutoDungeon(id) {
     resetIdleTimer(id);
     const maxB = getBossMaxHp(player.towerFloor);
     player.hp = player.maxHp; player.bossMaxHp = maxB; player.bossHp = maxB; player.inDungeon = true;
-    pouIO.emit('dungeon_status', { id, status: 'started', player });
+    emitEvent('pou', 'dungeon_status', { id, status: 'started', player });
 
     const dungeonInterval = setInterval(() => {
         if (!playersData[id] || !player.inDungeon) { clearInterval(dungeonInterval); return; }
@@ -390,15 +379,9 @@ function startAutoDungeon(id) {
             playerDied = true; resetIdleTimer(id); clearInterval(dungeonInterval);
         }
         savePlayerData();
-        pouIO.emit('tower_tick', { player, playerDmg, bossDmg, floorCleared, playerDied, leveledUp });
+        emitEvent('pou', 'tower_tick', { player, playerDmg, bossDmg, floorCleared, playerDied, leveledUp });
     }, 1250);
 }
-
-pouIO.on('connection', (socket) => {
-    socket.emit('init_game', { players: playersData });
-    socket.on('test_gift', (data) => handlePouGift(data.id, data.nickname, data.coins, data.giftName));
-    socket.on('test_cmd', (data) => executePouCmd(data));
-});
 
 // =========================================================================
 // BAGIAN B: LOGIKA GAME GACHA CAPIT
@@ -407,9 +390,11 @@ const CAPIT_FILE = path.join(__dirname, 'challenges.json');
 const PICK_TIMEOUT_MS = 20000;
 let gameConfig = { activeTheme: 'candy', tiers: [] };
 
-if (fs.existsSync(CAPIT_FILE)) {
-    try { gameConfig = JSON.parse(fs.readFileSync(CAPIT_FILE, 'utf8')); } catch (e) {}
-}
+try {
+    if (fs.existsSync(CAPIT_FILE)) {
+        gameConfig = JSON.parse(fs.readFileSync(CAPIT_FILE, 'utf8'));
+    }
+} catch (e) {}
 
 function saveCapitConfig() {
     try {
@@ -450,14 +435,14 @@ function enqueueCapitPlayer(user) {
         boxes: shuffled,
         isRevealing: false
     });
-    capitIO.emit('queue_update', { queueLength: queue.length, currentTurn });
+    emitEvent('capit', 'queue_update', { queueLength: queue.length, currentTurn });
     processNextCapitTurn();
 }
 
 function processNextCapitTurn() {
     if (currentTurn || queue.length === 0) return;
     currentTurn = queue.shift();
-    capitIO.emit('start_turn', { player: currentTurn, queueLength: queue.length, timeoutSec: PICK_TIMEOUT_MS / 1000 });
+    emitEvent('capit', 'start_turn', { player: currentTurn, queueLength: queue.length, timeoutSec: PICK_TIMEOUT_MS / 1000 });
     turnTimer = setTimeout(() => {
         if (currentTurn && !currentTurn.isRevealing) executeCapitBoxOpen(Math.floor(Math.random() * 10) + 1, true);
     }, PICK_TIMEOUT_MS);
@@ -467,10 +452,10 @@ function executeCapitBoxOpen(boxNumber, isAuto = false) {
     if (!currentTurn || currentTurn.isRevealing) return;
     currentTurn.isRevealing = true;
     clearTimeout(turnTimer);
-    capitIO.emit('reveal_box', { boxNumber, challengeText: currentTurn.boxes[boxNumber - 1], player: currentTurn, isAuto });
+    emitEvent('capit', 'reveal_box', { boxNumber, challengeText: currentTurn.boxes[boxNumber - 1], player: currentTurn, isAuto });
     setTimeout(() => {
         currentTurn = null;
-        capitIO.emit('turn_ended', { queueLength: queue.length });
+        emitEvent('capit', 'turn_ended', { queueLength: queue.length });
         processNextCapitTurn();
     }, 9000);
 }
@@ -487,11 +472,33 @@ function handleCapitChat(chatUser, comment) {
     if (boxNum !== null) executeCapitBoxOpen(boxNum, false);
 }
 
+// ================= ENDPOINT POLLING REAL-TIME UNTUK SEMUA HALAMAN =================
+app.get('/api/sync', (req, res) => {
+    const since = parseInt(req.query.since || '0', 10);
+    const ns = req.query.ns || '';
+    const events = eventLog.filter(e => e.seq > since && (!ns || e.namespace === ns));
+    res.json({
+        seq: eventSeq,
+        events,
+        state: {
+            activeGame,
+            tiktokStatus,
+            players: playersData,
+            capit: { config: gameConfig, currentTurn, queueLength: queue.length }
+        }
+    });
+});
+
 // ================= API ROUTES UNTUK PORTAL, CAPIT & POU =================
 app.get('/api/config', (req, res) => res.json(gameConfig));
-app.post('/api/config', (req, res) => { gameConfig = req.body; saveCapitConfig(); capitIO.emit('config_updated', gameConfig); res.json({ success: true }); });
-app.post('/api/theme', (req, res) => { gameConfig.activeTheme = req.body.theme; saveCapitConfig(); capitIO.emit('theme_changed', req.body.theme); res.json({ success: true }); });
-app.post('/api/connect-tiktok', (req, res) => { connectTikTok(req.body.username); res.json({ success: true }); });
+app.post('/api/config', (req, res) => { gameConfig = req.body; saveCapitConfig(); emitEvent('capit', 'config_updated', gameConfig); res.json({ success: true }); });
+app.post('/api/theme', (req, res) => { gameConfig.activeTheme = req.body.theme; saveCapitConfig(); emitEvent('capit', 'theme_changed', req.body.theme); res.json({ success: true }); });
+
+app.post('/api/connect-tiktok', async (req, res) => {
+    const status = await connectTikTok(req.body.username);
+    res.json({ success: status.connected, status });
+});
+
 app.post('/api/set-active-game', (req, res) => {
     if (req.body.game === 'pou' || req.body.game === 'capit') {
         activeGame = req.body.game;
@@ -499,20 +506,22 @@ app.post('/api/set-active-game', (req, res) => {
     }
     res.json({ success: true, activeGame });
 });
+
 app.post('/api/simulate-gift', (req, res) => {
     enqueueCapitPlayer({ userId: 'sim_' + Date.now(), secUid: '', uniqueId: req.body.nickname.toLowerCase(), nickname: req.body.nickname || 'Sultan_Test', profilePictureUrl: '', coins: parseInt(req.body.coins, 10) || 1 });
     res.json({ success: true });
 });
+
 app.post('/api/simulate-pick', (req, res) => {
     const num = parseBoxChoice(String(req.body.boxNumber));
     if (num) executeCapitBoxOpen(num, false);
     res.json({ success: true });
 });
+
 app.post('/api/skip-turn', (req, res) => {
-    clearTimeout(turnTimer); currentTurn = null; capitIO.emit('turn_ended', { queueLength: queue.length }); processNextCapitTurn(); res.json({ success: true });
+    clearTimeout(turnTimer); currentTurn = null; emitEvent('capit', 'turn_ended', { queueLength: queue.length }); processNextCapitTurn(); res.json({ success: true });
 });
 
-// HTTP API BACKUP UNTUK GAME POU (AGAR STABIL DI VERCEL)
 app.get('/api/pou/players', (req, res) => {
     res.json({ players: playersData });
 });
@@ -527,19 +536,14 @@ app.post('/api/pou/action', (req, res) => {
     res.json({ success: true, players: playersData });
 });
 
-portalIO.on('connection', (socket) => socket.emit('portal_state', { activeGame, tiktokStatus }));
-capitIO.on('connection', (socket) => {
-    socket.emit('init_state', { config: gameConfig, currentTurn, queueLength: queue.length });
-    socket.emit('tiktok_status', tiktokStatus);
-});
-
-const PORT = process.env.PORT || 3000;
-initTikTokLibrary().then(() => {
-    server.listen(PORT, () => {
-        console.log(`==================================================`);
-        console.log(`🚀 PORTAL UTAMA : http://localhost:${PORT}`);
-        console.log(`==================================================`);
+// Jalankan server hanya jika dijalankan di localhost (bukan di Vercel)
+if (require.main === module) {
+    const PORT = process.env.PORT || 3000;
+    initTikTokLibrary().then(() => {
+        app.listen(PORT, () => {
+            console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
+        });
     });
-});
+}
 
 module.exports = app;

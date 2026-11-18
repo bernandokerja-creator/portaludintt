@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Layar Live Otomatis - TikTok Live Studio</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="/vercel-client.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
@@ -39,7 +39,7 @@
     <iframe id="frame-capit" class="game-frame hidden-frame" src="about:blank"></iframe>
 
     <script>
-        const portalSocket = io('/portal');
+        const portalSocket = createVercelSocket('/portal');	
         const framePou = document.getElementById('frame-pou');
         const frameCapit = document.getElementById('frame-capit');
         let currentActive = null;
