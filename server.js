@@ -38,7 +38,6 @@ let isConnecting = false;
 let lastConnectAttempt = 0;
 let tiktokStatus = { connected: false, username: '' };
 
-// Simpan msgId & signature gift yang sudah diproses agar 100% anti-spam / anti-replay
 const processedMsgIds = new Set();
 const recentGiftSignatures = new Map();
 
@@ -55,7 +54,6 @@ function isDuplicateOrStaleEvent(data, prefix = 'evt') {
         }
     }
 
-    // Tolak paket replay lama dari TikTok (jika createTime lebih dari 35 detik lalu)
     const createTime = Number(data.createTime || data.common?.createTime || 0);
     if (createTime > 0) {
         const msgMs = createTime < 1e12 ? createTime * 1000 : createTime;
@@ -95,7 +93,6 @@ async function connectTikTok(username) {
     const cleanUser = normalizeId(username);
     if (!cleanUser) return { connected: false, error: 'Username kosong' };
 
-    // Cegah koneksi berulang dalam jeda kurang dari 15 detik
     if (isConnecting) return tiktokStatus;
     if (tiktokStatus.connected && tiktokStatus.username === cleanUser) return tiktokStatus;
     if (Date.now() - lastConnectAttempt < 15000 && tiktokStatus.username === cleanUser) {
@@ -170,7 +167,6 @@ async function connectTikTok(username) {
         );
         const userInfo = extractUserInfo(data);
 
-        // Filter tambahan: cegah gift identik dari user yang sama dalam 5 detik
         const sigKey = `${userInfo.uniqueId}_${giftName}_${totalCoins}`;
         const lastSigTime = recentGiftSignatures.get(sigKey) || 0;
         if (Date.now() - lastSigTime < 5000) return;
@@ -308,44 +304,55 @@ const fashionData = {
     ]
 };
 
-function handlePouJoin(id, nickname) {
-    if (!playersData[id]) {
-        playersData[id] = {
-            id, name: nickname, level: 1, xp: 0, hp: 100, maxHp: 100,
+function ensurePouPlayer(id, nickname) {
+    const cleanId = normalizeId(id);
+    if (!playersData[cleanId]) {
+        playersData[cleanId] = {
+            id: cleanId, name: nickname || cleanId, level: 1, xp: 0, hp: 100, maxHp: 100,
             hunger: 100, thirst: 100, clean: 100,
             hungerDuration: getRandomNeedDuration(), thirstDuration: getRandomNeedDuration(), cleanDuration: getRandomNeedDuration(),
             outfit: "standar", weapon: "none", towerFloor: 1,
             bossHp: getBossMaxHp(1), bossMaxHp: getBossMaxHp(1),
             inDungeon: false, isHidden: false
         };
-        resetIdleTimer(id);
-        savePlayerData();
-        emitEvent('pou', 'player_updated', { player: playersData[id], action: 'join', coins: 0, rewardText: '' });
+    } else if (nickname) {
+        playersData[cleanId].name = nickname;
+    }
+    return playersData[cleanId];
+}
+
+function handlePouJoin(id, nickname) {
+    const cleanId = normalizeId(id);
+    const isNew = !playersData[cleanId];
+    const player = ensurePouPlayer(cleanId, nickname);
+    resetIdleTimer(cleanId);
+    savePlayerData();
+
+    if (isNew) {
+        emitEvent('pou', 'player_updated', { player, action: 'join', coins: 0, rewardText: '' });
     } else {
-        playersData[id].name = nickname;
-        resetIdleTimer(id);
-        savePlayerData();
-        emitEvent('pou', 'user_show', { id, nickname, player: playersData[id] });
+        emitEvent('pou', 'user_show', { id: cleanId, nickname: player.name, player });
     }
 }
 
 function handlePouChat(id, nickname, rawComment) {
+    const cleanId = normalizeId(id);
     const comment = rawComment.toLowerCase().trim();
-    console.log(`[POU CHAT] @${id}: "${comment}"`);
+    console.log(`[POU CHAT] @${cleanId}: "${comment}"`);
 
     if (comment === 'ee' || comment === 'eek') {
-        return handlePouJoin(id, nickname);
+        return handlePouJoin(cleanId, nickname);
     }
     if (comment === 'shw' || comment === 'show') {
-        if (!playersData[id]) handlePouJoin(id, nickname);
-        resetIdleTimer(id);
+        const player = ensurePouPlayer(cleanId, nickname);
+        resetIdleTimer(cleanId);
         savePlayerData();
-        emitEvent('pou', 'user_show', { id, nickname, player: playersData[id] });
+        emitEvent('pou', 'user_show', { id: cleanId, nickname: player.name, player });
     }
     if (comment === 'dgn' || comment === 'dungeon') {
-        if (!playersData[id]) handlePouJoin(id, nickname);
-        resetIdleTimer(id);
-        startAutoDungeon(id);
+        ensurePouPlayer(cleanId, nickname);
+        resetIdleTimer(cleanId);
+        startAutoDungeon(cleanId);
     }
     if (comment === 'costume' || comment === 'baju') {
         emitEvent('pou', 'show_costume_catalog', {});
@@ -353,80 +360,103 @@ function handlePouChat(id, nickname, rawComment) {
 }
 
 function handlePouGift(id, nickname, coins, giftName = "") {
+    const cleanId = normalizeId(id);
     const gName = giftName.toLowerCase();
-    if (!playersData[id]) {
-        if (gName.includes('heart') || gName.includes('love') || gName.includes('join')) {
-            handlePouJoin(id, nickname);
+    const numCoins = Number(coins) || 1;
+
+    // Otomatis buat data pemain jika belum ada di memori kontainer aktif agar gacha/gift tidak pernah gagal
+    if (!playersData[cleanId]) {
+        if (gName.includes('heart') || gName.includes('love') || gName.includes('join') || numCoins >= 5 || gName.includes('parfum') || gName.includes('rose') || gName.includes('kopi') || gName.includes('tiktok')) {
+            ensurePouPlayer(cleanId, nickname);
+        } else {
+            return "";
         }
-        return;
     }
-    const player = playersData[id];
-    resetIdleTimer(id);
+
+    const player = playersData[cleanId];
+    if (nickname) player.name = nickname;
+    resetIdleTimer(cleanId);
+
     let actionType = 'join', rewardText = "";
-    const fillAmount = Math.ceil((100 / 3) * Math.max(1, coins));
+    const fillAmount = Math.ceil((100 / 3) * Math.max(1, numCoins));
 
     if (gName.includes('rose') || gName.includes('mawar')) {
         actionType = 'feed';
         player.hunger = Math.min(100, Math.round((player.hunger || 0) + fillAmount));
         player.hungerDuration = getRandomNeedDuration();
-        player.hp = Math.min(player.maxHp, player.hp + (25 * Math.max(1, coins)));
+        player.hp = Math.min(player.maxHp, player.hp + (25 * Math.max(1, numCoins)));
     } else if (gName.includes('kopi') || gName.includes('coffee')) {
         actionType = 'drink';
         player.thirst = Math.min(100, Math.round((player.thirst || 0) + fillAmount));
         player.thirstDuration = getRandomNeedDuration();
-        player.hp = Math.min(player.maxHp, player.hp + (20 * Math.max(1, coins)));
+        player.hp = Math.min(player.maxHp, player.hp + (20 * Math.max(1, numCoins)));
     } else if (gName.includes('tiktok')) {
         actionType = 'clean';
         player.clean = Math.min(100, Math.round((player.clean || 0) + fillAmount));
         player.cleanDuration = getRandomNeedDuration();
-    } else if (gName.includes('parfum') || gName.includes('perfume') || coins === 20) {
+    } else if (gName.includes('parfum') || gName.includes('perfume') || numCoins === 20) {
         actionType = 'gacha';
         let tier = player.level > 80 ? "81-100" : player.level > 60 ? "61-80" : player.level > 40 ? "41-60" : player.level > 20 ? "21-40" : "1-20";
         const sel = fashionData[tier][Math.floor(Math.random() * fashionData[tier].length)];
         player.outfit = sel.id;
         rewardText = `Parfume Gacha Baju [Lv.${tier}]: ${sel.name}`;
-    } else if (coins >= 5) {
+    } else if (numCoins >= 5 || gName.includes('senjata')) {
         actionType = 'gacha';
-        const list = coins >= 500 ? ["thanos", "thor", "naga"] : coins >= 100 ? ["bazooka", "staff", "laser"] : coins >= 10 ? ["ketapel", "shuriken", "katana"] : ["sandal", "pisau", "palu"];
+        const list = numCoins >= 500
+            ? ["thanos", "thor", "naga"]
+            : numCoins >= 100
+                ? ["bazooka", "staff", "laser"]
+                : numCoins >= 10
+                    ? ["ketapel", "shuriken", "katana"]
+                    : ["sandal", "pisau", "palu"];
         player.weapon = list[Math.floor(Math.random() * list.length)];
-        rewardText = `Senjata (${coins}c): ${weaponData[player.weapon].name}`;
+        rewardText = `Senjata (${numCoins}c): ${weaponData[player.weapon].name}`;
     }
 
     savePlayerData();
-    emitEvent('pou', 'player_updated', { player, action: actionType, coins, rewardText });
+    emitEvent('pou', 'player_updated', { player, action: actionType, coins: numCoins, rewardText });
+    return rewardText;
 }
 
 function executePouCmd(data) {
-    if ((data.cmd === 'ee' || data.cmd === 'eek') && data.id) {
-        handlePouJoin(data.id, data.nickname || data.id);
-    } else if ((data.cmd === 'shw' || data.cmd === 'show') && playersData[data.id]) {
-        resetIdleTimer(data.id); savePlayerData();
-        emitEvent('pou', 'user_show', { id: data.id, nickname: playersData[data.id].name, player: playersData[data.id] });
-    } else if ((data.cmd === 'dgn' || data.cmd === 'dungeon') && playersData[data.id]) {
-        startAutoDungeon(data.id);
-    } else if (data.cmd === 'throne' && playersData[data.id]) {
-        resetIdleTimer(data.id); savePlayerData();
-        emitEvent('pou', 'set_throne', { id: data.id, player: playersData[data.id] });
-    } else if (data.cmd === 'levelup1' && playersData[data.id]) {
-        resetIdleTimer(data.id);
-        playersData[data.id].level += 1;
-        playersData[data.id].maxHp += 35;
-        playersData[data.id].hp = playersData[data.id].maxHp;
+    const cleanId = normalizeId(data.id);
+    if ((data.cmd === 'ee' || data.cmd === 'eek') && cleanId) {
+        handlePouJoin(cleanId, data.nickname || cleanId);
+    } else if ((data.cmd === 'shw' || data.cmd === 'show') && cleanId) {
+        const player = ensurePouPlayer(cleanId, data.nickname || cleanId);
+        resetIdleTimer(cleanId);
         savePlayerData();
-        emitEvent('pou', 'player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
-    } else if (data.cmd === 'levelup10' && playersData[data.id]) {
-        resetIdleTimer(data.id);
-        playersData[data.id].level += 10;
-        playersData[data.id].maxHp += 350;
-        playersData[data.id].hp = playersData[data.id].maxHp;
+        emitEvent('pou', 'user_show', { id: cleanId, nickname: player.name, player });
+    } else if ((data.cmd === 'dgn' || data.cmd === 'dungeon') && cleanId) {
+        ensurePouPlayer(cleanId, data.nickname || cleanId);
+        startAutoDungeon(cleanId);
+    } else if (data.cmd === 'throne' && cleanId) {
+        const player = ensurePouPlayer(cleanId, data.nickname || cleanId);
+        resetIdleTimer(cleanId);
         savePlayerData();
-        emitEvent('pou', 'player_updated', { player: playersData[data.id], action: 'join', coins: 0, rewardText: '' });
-    } else if (data.cmd === 'delete_player' && playersData[data.id]) {
-        clearTimeout(idleTimers[data.id]);
-        delete idleTimers[data.id];
-        delete playersData[data.id];
+        emitEvent('pou', 'set_throne', { id: cleanId, player });
+    } else if (data.cmd === 'levelup1' && cleanId) {
+        const player = ensurePouPlayer(cleanId, data.nickname || cleanId);
+        resetIdleTimer(cleanId);
+        player.level += 1;
+        player.maxHp += 35;
+        player.hp = player.maxHp;
         savePlayerData();
-        emitEvent('pou', 'player_deleted', { id: data.id });
+        emitEvent('pou', 'player_updated', { player, action: 'join', coins: 0, rewardText: '' });
+    } else if (data.cmd === 'levelup10' && cleanId) {
+        const player = ensurePouPlayer(cleanId, data.nickname || cleanId);
+        resetIdleTimer(cleanId);
+        player.level += 10;
+        player.maxHp += 350;
+        player.hp = player.maxHp;
+        savePlayerData();
+        emitEvent('pou', 'player_updated', { player, action: 'join', coins: 0, rewardText: '' });
+    } else if (data.cmd === 'delete_player' && cleanId) {
+        clearTimeout(idleTimers[cleanId]);
+        delete idleTimers[cleanId];
+        delete playersData[cleanId];
+        savePlayerData();
+        emitEvent('pou', 'player_deleted', { id: cleanId });
     } else if (data.cmd === 'clear_all') {
         Object.keys(idleTimers).forEach(k => clearTimeout(idleTimers[k]));
         playersData = {};
@@ -436,15 +466,16 @@ function executePouCmd(data) {
 }
 
 function startAutoDungeon(id) {
-    const player = playersData[id];
+    const cleanId = normalizeId(id);
+    const player = playersData[cleanId];
     if (!player || player.inDungeon) return;
-    resetIdleTimer(id);
+    resetIdleTimer(cleanId);
     const maxB = getBossMaxHp(player.towerFloor);
     player.hp = player.maxHp; player.bossMaxHp = maxB; player.bossHp = maxB; player.inDungeon = true;
-    emitEvent('pou', 'dungeon_status', { id, status: 'started', player });
+    emitEvent('pou', 'dungeon_status', { id: cleanId, status: 'started', player });
 
     const dungeonInterval = setInterval(() => {
-        if (!playersData[id] || !player.inDungeon) { clearInterval(dungeonInterval); return; }
+        if (!playersData[cleanId] || !player.inDungeon) { clearInterval(dungeonInterval); return; }
         const wInfo = weaponData[player.weapon] || { mult: 1 };
         const playerDmg = Math.floor((15 + (player.level * 12)) * wInfo.mult);
         const bossDmg = Math.floor(10 + (player.towerFloor * 4.2));
@@ -461,7 +492,7 @@ function startAutoDungeon(id) {
             }
             if (player.towerFloor >= 100) {
                 player.inDungeon = false; player.hp = player.maxHp; player.bossHp = getBossMaxHp(100);
-                resetIdleTimer(id); clearInterval(dungeonInterval);
+                resetIdleTimer(cleanId); clearInterval(dungeonInterval);
             } else {
                 player.towerFloor += 1;
                 player.bossMaxHp = getBossMaxHp(player.towerFloor);
@@ -470,7 +501,7 @@ function startAutoDungeon(id) {
         } else if (player.hp <= 0) {
             player.inDungeon = false; player.hp = player.maxHp;
             player.bossMaxHp = getBossMaxHp(player.towerFloor); player.bossHp = player.bossMaxHp;
-            playerDied = true; resetIdleTimer(id); clearInterval(dungeonInterval);
+            playerDied = true; resetIdleTimer(cleanId); clearInterval(dungeonInterval);
         }
         savePlayerData();
         emitEvent('pou', 'tower_tick', { player, playerDmg, bossDmg, floorCleared, playerDied, leveledUp });
@@ -660,12 +691,13 @@ app.get('/api/pou/players', (req, res) => {
 
 app.post('/api/pou/action', (req, res) => {
     const { type } = req.body;
+    let rewardText = '';
     if (type === 'gift') {
-        handlePouGift(req.body.id, req.body.nickname, req.body.coins, req.body.giftName);
+        rewardText = handlePouGift(req.body.id, req.body.nickname, req.body.coins, req.body.giftName);
     } else if (type === 'cmd') {
         executePouCmd(req.body);
     }
-    res.json({ success: true, players: playersData });
+    res.json({ success: true, rewardText, players: playersData });
 });
 
 if (require.main === module) {

@@ -17,9 +17,22 @@ window.createVercelSocket = function(namespace) {
     const pouBestOutfits = JSON.parse(localStorage.getItem('pou_best_outfits') || '{}');
     const pouBestWeapons = JSON.parse(localStorage.getItem('pou_best_weapons') || '{}');
 
-    function normalizePouPlayer(p) {
+    function syncPouCache(p, forceOverwrite = false) {
         if (!p || !p.id) return p;
         const copy = { ...p };
+
+        if (forceOverwrite) {
+            if (copy.outfit && copy.outfit !== 'standar') {
+                pouBestOutfits[copy.id] = copy.outfit;
+                localStorage.setItem('pou_best_outfits', JSON.stringify(pouBestOutfits));
+            }
+            if (copy.weapon && copy.weapon !== 'none') {
+                pouBestWeapons[copy.id] = copy.weapon;
+                localStorage.setItem('pou_best_weapons', JSON.stringify(pouBestWeapons));
+            }
+            return copy;
+        }
+
         if (copy.outfit && copy.outfit !== 'standar') {
             pouBestOutfits[copy.id] = copy.outfit;
             localStorage.setItem('pou_best_outfits', JSON.stringify(pouBestOutfits));
@@ -61,7 +74,8 @@ window.createVercelSocket = function(namespace) {
                 localStorage.setItem('tiktok_live_user', ev.payload.tiktokStatus.username);
             }
             if (ns === 'pou' && ev.payload?.player) {
-                ev.payload.player = normalizePouPlayer(ev.payload.player);
+                const isExplicitAction = ev.event === 'player_updated' || ev.event === 'user_show';
+                ev.payload.player = syncPouCache(ev.payload.player, isExplicitAction);
                 pouSnapshots.set(ev.payload.player.id, getPouHash(ev.payload.player));
             }
             if (ev.event === 'all_players_cleared') {
@@ -110,7 +124,7 @@ window.createVercelSocket = function(namespace) {
                 } else if (ns === 'pou') {
                     const normalizedPlayers = {};
                     Object.entries(data.state.players || {}).forEach(([id, p]) => {
-                        const np = normalizePouPlayer(p);
+                        const np = syncPouCache(p, false);
                         normalizedPlayers[id] = np;
                         pouSnapshots.set(id, getPouHash(np));
                     });
@@ -123,7 +137,6 @@ window.createVercelSocket = function(namespace) {
                     }
                 }
             } else {
-                // Jika kontainer Vercel restart (seq kembali kecil), tetap proses event baru di kontainer ini
                 if (data.seq < lastSeq) {
                     lastSeq = data.seq;
                     const freshRes = await fetch(`/api/sync?ns=${ns}&since=0&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}&t=${Date.now()}`, { cache: 'no-store' });
@@ -135,15 +148,15 @@ window.createVercelSocket = function(namespace) {
                     processEvents(data.events || []);
                 }
 
-                // Sinkronkan pemain Pou jika ada perubahan state atau pemain baru bergabung
+                // Fallback sinkronisasi state jika event terlewat antar kontainer
                 if (ns === 'pou' && data.state?.players) {
                     Object.values(data.state.players).forEach(rawP => {
-                        const p = normalizePouPlayer(rawP);
+                        const p = syncPouCache(rawP, false);
                         const hash = getPouHash(p);
                         if (pouSnapshots.get(p.id) !== hash) {
                             pouSnapshots.set(p.id, hash);
                             if (!p.isHidden) {
-                                trigger('user_show', { id: p.id, nickname: p.name, player: p });
+                                trigger('player_updated', { player: p, action: 'sync', coins: 0, rewardText: '' });
                             }
                         }
                     });
@@ -172,20 +185,36 @@ window.createVercelSocket = function(namespace) {
             if (!handlers[event]) handlers[event] = [];
             handlers[event].push(fn);
         },
-        emit(event, data) {
+        async emit(event, data) {
             if (ns === 'pou') {
                 const type = event === 'test_gift' ? 'gift' : 'cmd';
-                fetch('/api/pou/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type, ...data })
-                });
+                try {
+                    const res = await fetch('/api/pou/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type, ...data })
+                    });
+                    const resData = await res.json();
+                    if (resData.players && data.id && resData.players[data.id]) {
+                        const updatedP = syncPouCache(resData.players[data.id], true);
+                        pouSnapshots.set(updatedP.id, getPouHash(updatedP));
+                        trigger('player_updated', {
+                            player: updatedP,
+                            action: type === 'gift' ? 'gacha' : (data.cmd || 'join'),
+                            coins: data.coins || 0,
+                            rewardText: resData.rewardText || ''
+                        });
+                    }
+                } catch (e) {}
             }
         }
     };
 };
 
 function startKeepAliveStream() {
+    // Jangan jalankan stream duplikat dari tab admin agar kontainer Vercel tidak bertabrakan
+    if (window.location.pathname.includes('admin.html')) return;
+
     const savedUser = localStorage.getItem('tiktok_live_user') || '';
     const savedGame = localStorage.getItem('tiktok_active_game') || 'pou';
     if (!savedUser) {
