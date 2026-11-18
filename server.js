@@ -73,10 +73,10 @@ async function connectTikTok(username) {
         try { tiktokConnection.disconnect(); } catch (e) {}
     }
 
-    tiktokConnection = new TikTokLiveConnection(cleanUser, {
-        processInitialData: false,
-        enableExtendedGiftInfo: true
-    });
+tiktokConnection = new TikTokLiveConnection(cleanUser, {
+    processInitialData: false,
+    signApiKey: process.env.SIGN_API_KEY
+});
 
     try {
         const state = await tiktokConnection.connect();
