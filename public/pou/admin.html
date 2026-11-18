@@ -173,7 +173,7 @@
 
 <script src="/vercel-client.js"></script>
 <script>
-    const socket = io('/pou');
+    const socket = createVercelSocket('/pou');
     const allPlayers = {};
     let selectedId = null;
 
