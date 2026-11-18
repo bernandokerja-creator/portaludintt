@@ -13,7 +13,6 @@ window.createVercelSocket = function(namespace) {
     const playedTurns = new Set(JSON.parse(sessionStorage.getItem('played_capit_turns') || '[]'));
     const revealedTurns = new Set(JSON.parse(sessionStorage.getItem('revealed_capit_turns') || '[]'));
 
-    // Cache snapshot pemain Pou agar tidak re-render jika tidak ada perubahan & tidak tertimpa state lama
     const pouSnapshots = new Map();
     const pouBestOutfits = JSON.parse(localStorage.getItem('pou_best_outfits') || '{}');
     const pouBestWeapons = JSON.parse(localStorage.getItem('pou_best_weapons') || '{}');
@@ -51,6 +50,36 @@ window.createVercelSocket = function(namespace) {
         if (handlers[event]) {
             handlers[event].forEach(fn => fn(payload));
         }
+    }
+
+    function processEvents(events) {
+        events.forEach(ev => {
+            if (ev.event === 'portal_state' && ev.payload?.activeGame) {
+                localStorage.setItem('tiktok_active_game', ev.payload.activeGame);
+            }
+            if (ev.event === 'portal_state' && ev.payload?.tiktokStatus?.username) {
+                localStorage.setItem('tiktok_live_user', ev.payload.tiktokStatus.username);
+            }
+            if (ns === 'pou' && ev.payload?.player) {
+                ev.payload.player = normalizePouPlayer(ev.payload.player);
+                pouSnapshots.set(ev.payload.player.id, getPouHash(ev.payload.player));
+            }
+            if (ev.event === 'all_players_cleared') {
+                pouSnapshots.clear();
+                localStorage.removeItem('pou_best_outfits');
+                localStorage.removeItem('pou_best_weapons');
+            }
+            const tid = ev.payload?.player?.turnId;
+            if (ev.event === 'start_turn' && tid) {
+                if (playedTurns.has(tid)) return;
+                markTurn(playedTurns, 'played_capit_turns', tid);
+            }
+            if (ev.event === 'reveal_box' && tid) {
+                if (revealedTurns.has(tid)) return;
+                markTurn(revealedTurns, 'revealed_capit_turns', tid);
+            }
+            trigger(ev.event, ev.payload);
+        });
     }
 
     async function poll() {
@@ -94,40 +123,19 @@ window.createVercelSocket = function(namespace) {
                     }
                 }
             } else {
+                // Jika kontainer Vercel restart (seq kembali kecil), tetap proses event baru di kontainer ini
                 if (data.seq < lastSeq) {
                     lastSeq = data.seq;
+                    const freshRes = await fetch(`/api/sync?ns=${ns}&since=0&user=${encodeURIComponent(savedUser)}&game=${encodeURIComponent(savedGame)}&t=${Date.now()}`, { cache: 'no-store' });
+                    const freshData = await freshRes.json();
+                    lastSeq = freshData.seq;
+                    processEvents(freshData.events || []);
                 } else {
                     lastSeq = data.seq;
-                    data.events.forEach(ev => {
-                        if (ev.event === 'portal_state' && ev.payload?.activeGame) {
-                            localStorage.setItem('tiktok_active_game', ev.payload.activeGame);
-                        }
-                        if (ev.event === 'portal_state' && ev.payload?.tiktokStatus?.username) {
-                            localStorage.setItem('tiktok_live_user', ev.payload.tiktokStatus.username);
-                        }
-                        if (ns === 'pou' && ev.payload?.player) {
-                            ev.payload.player = normalizePouPlayer(ev.payload.player);
-                            pouSnapshots.set(ev.payload.player.id, getPouHash(ev.payload.player));
-                        }
-                        if (ev.event === 'all_players_cleared') {
-                            pouSnapshots.clear();
-                            localStorage.removeItem('pou_best_outfits');
-                            localStorage.removeItem('pou_best_weapons');
-                        }
-                        const tid = ev.payload?.player?.turnId;
-                        if (ev.event === 'start_turn' && tid) {
-                            if (playedTurns.has(tid)) return;
-                            markTurn(playedTurns, 'played_capit_turns', tid);
-                        }
-                        if (ev.event === 'reveal_box' && tid) {
-                            if (revealedTurns.has(tid)) return;
-                            markTurn(revealedTurns, 'revealed_capit_turns', tid);
-                        }
-                        trigger(ev.event, ev.payload);
-                    });
+                    processEvents(data.events || []);
                 }
 
-                // Hanya sinkronkan pemain Pou jika datanya BENAR-BENAR berubah (mencegah kedip/blink)
+                // Sinkronkan pemain Pou jika ada perubahan state atau pemain baru bergabung
                 if (ns === 'pou' && data.state?.players) {
                     Object.values(data.state.players).forEach(rawP => {
                         const p = normalizePouPlayer(rawP);
@@ -135,7 +143,7 @@ window.createVercelSocket = function(namespace) {
                         if (pouSnapshots.get(p.id) !== hash) {
                             pouSnapshots.set(p.id, hash);
                             if (!p.isHidden) {
-                                trigger('player_updated', { player: p, action: 'sync', coins: 0, rewardText: '' });
+                                trigger('user_show', { id: p.id, nickname: p.name, player: p });
                             }
                         }
                     });
